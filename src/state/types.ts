@@ -1,8 +1,14 @@
 import type {Config} from '../config/config.ts';
 import type {Message} from '../i18n/strings.ts';
 import type {AccountMark} from '../services/accounts.ts';
+import type {Conflict} from '../services/conflictRadar.ts';
 import type {SessionDetails} from '../services/details.ts';
 import type {SessionStatus} from '../services/status/machine.ts';
+import type {MergeOutcome, MergePlan} from '../services/worktree.ts';
+
+// Re-exported so ui/ reads these shapes from state/ only.
+export type {Conflict} from '../services/conflictRadar.ts';
+export type {MergeOutcome, MergePlan} from '../services/worktree.ts';
 
 export type Project = {path: string; name: string};
 
@@ -19,10 +25,14 @@ export type SessionSummary = {
 	created: number;
 	// The agent's own conversation id; '' when not pinned.
 	agentSession: string;
+	// Made with `w` (@ap-worktree), and the branch it merges back into (@ap-base).
+	worktree: boolean;
+	base: string;
 };
 
 export type Row =
-	| {kind: 'project'; key: string; project: Project; count: number; expanded: boolean}
+	// `conflict`: two of its branches touch the same file (SPEC 5.10).
+	| {kind: 'project'; key: string; project: Project; count: number; expanded: boolean; conflict: boolean}
 	| {kind: 'session'; key: string; session: SessionSummary};
 
 export type AgentOption = {id: string; name: string; installed: boolean};
@@ -32,8 +42,29 @@ type DialogBase = {error: Message | null; busy: boolean};
 export type AddProjectDialog = DialogBase & {kind: 'add-project'; value: string};
 export type NewSessionDialog = DialogBase & {kind: 'new-session'; project: string; options: AgentOption[]; index: number};
 export type CloseSessionDialog = DialogBase & {kind: 'close-session'; session: SessionSummary};
+// SPEC 5.9. `base` is null until the main folder's branch has been read.
+export type WorktreeDialog = DialogBase & {
+	kind: 'worktree';
+	project: string;
+	base: string | null;
+	value: string;
+	options: AgentOption[];
+	index: number;
+};
+// One dialog for the whole merge: checking (no plan yet), refused
+// (`blocked`), waiting for enter (`plan`), then what happened (`outcome`).
+export type MergeDialog = DialogBase & {
+	kind: 'merge';
+	session: SessionSummary;
+	plan: MergePlan | null;
+	blocked: Message | null;
+	// The commit message, asked for only when the plan has changes to commit.
+	value: string;
+	outcome: MergeOutcome | null;
+};
+export type OpenUrlDialog = DialogBase & {kind: 'open-url'; ports: number[]; index: number};
 
-export type Dialog = AddProjectDialog | NewSessionDialog | CloseSessionDialog;
+export type Dialog = AddProjectDialog | NewSessionDialog | CloseSessionDialog | WorktreeDialog | MergeDialog | OpenUrlDialog;
 
 export type WindowSize = {columns: number; rows: number};
 
@@ -51,6 +82,8 @@ export type AppState = {
 	window: WindowSize | null;
 	// One line shown above the key hints, e.g. an invalid config file.
 	notice: Message | null;
+	// The answer to the last key (nothing to show, merged…); gone on the next key.
+	flash: Message | null;
 	// SPEC 5.3, keyed by session id; missing until the first capture.
 	statuses: Record<string, SessionStatus>;
 	// Sessions whose glyph blinks: entered needs-approval or error and the
@@ -65,4 +98,6 @@ export type AppState = {
 	details: Record<string, SessionDetails>;
 	// SPEC 5.7; empty until the first check.
 	accounts: AccountMark[];
+	// SPEC 5.10, keyed by project path; only projects with a conflict.
+	conflicts: Record<string, Conflict[]>;
 };

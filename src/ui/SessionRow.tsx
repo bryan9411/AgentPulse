@@ -8,6 +8,8 @@ import {padEnd, width as cells} from './text.ts';
 
 type Props = {
 	session: SessionSummary;
+	// The AI name, with "#2" when several share the branch (SPEC 5.8).
+	label: string;
 	state: AgentState;
 	// Off phase of a blinking glyph (SPEC 5.4): the cell is drawn blank.
 	hidden: boolean;
@@ -16,8 +18,8 @@ type Props = {
 	glyphs: Glyphs;
 };
 
-export function SessionRow({session, state, hidden, selected, width, glyphs}: Props) {
-	const agentText = ` ${session.agent}`;
+export function SessionRow({session, label, state, hidden, selected, width, glyphs}: Props) {
+	const agentText = ` ${label}`;
 	const branchWidth = Math.max(0, width - 4 - cells(agentText));
 	const {glyph, color} = stateGlyph(state, glyphs);
 	return (

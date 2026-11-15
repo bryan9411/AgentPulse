@@ -1,6 +1,6 @@
 import {useInput, type Key} from 'ink';
 import * as A from '../state/actions.ts';
-import {selectedRow, windowTooSmall} from '../state/selectors.ts';
+import {acceptsText, selectedRow, windowTooSmall} from '../state/selectors.ts';
 import type {Store} from '../state/store.ts';
 import type {AppState, Dialog} from '../state/types.ts';
 import type {Controller} from './controller.ts';
@@ -9,6 +9,9 @@ import type {Controller} from './controller.ts';
 const printable = (input: string) => input.replace(/[\u0000-\u001f\u007f]/g, '');
 
 function dialogKey(store: Store<AppState>, controller: Controller, dialog: Dialog, input: string, key: Key) {
+	// The work is under way and its answer belongs to this dialog: closing it
+	// now would hide a merge result, or hand the answer to the next dialog.
+	if (dialog.busy) return;
 	if (key.escape) {
 		store.set(A.closeDialog);
 		return;
@@ -17,12 +20,17 @@ function dialogKey(store: Store<AppState>, controller: Controller, dialog: Dialo
 		void controller.submitDialog();
 		return;
 	}
-	if (dialog.kind === 'new-session') {
-		if (key.upArrow || input === 'k') store.set(s => A.moveDialogChoice(s, -1));
-		else if (key.downArrow || input === 'j') store.set(s => A.moveDialogChoice(s, 1));
+	// Where letters are text (a branch name), only the arrows move the choice.
+	const typing = acceptsText(dialog);
+	if (key.upArrow || (!typing && input === 'k')) {
+		store.set(s => A.moveDialogChoice(s, -1));
 		return;
 	}
-	if (dialog.kind !== 'add-project') return;
+	if (key.downArrow || (!typing && input === 'j')) {
+		store.set(s => A.moveDialogChoice(s, 1));
+		return;
+	}
+	if (!typing) return;
 	if (key.backspace || key.delete) store.set(s => A.editDialog(s, v => [...v].slice(0, -1).join('')));
 	else if (!key.ctrl && !key.meta && input) {
 		const text = printable(input);
@@ -57,6 +65,8 @@ export function useKeys(store: Store<AppState>, controller: Controller) {
 			return;
 		}
 		if (windowTooSmall(state)) return;
+		// The line answering the previous key has been read by now.
+		if (state.flash) store.set(s => A.setFlash(s, null));
 		const row = selectedRow(state);
 		if (key.upArrow || input === 'k') store.set(s => A.moveSelection(s, -1));
 		else if (key.downArrow || input === 'j') store.set(s => A.moveSelection(s, 1));
@@ -70,6 +80,10 @@ export function useKeys(store: Store<AppState>, controller: Controller) {
 			if (row?.kind === 'session') void controller.zoomAi();
 		} else if (input === 'n') controller.openNewSession();
 		else if (input === 'x') store.set(A.openCloseSession);
+		else if (input === 'w') controller.openWorktree();
+		else if (input === 'm') controller.openMerge();
+		else if (input === 'd') void controller.showDiff();
+		else if (input === 'o') void controller.openWeb();
 		else if (input === 'a') store.set(A.openAddProject);
 		else if (input === '/') store.set(A.startFilter);
 		else if (input === 'f') store.set(A.toggleAttentionOnly);

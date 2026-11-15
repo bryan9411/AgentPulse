@@ -37,6 +37,10 @@ set -g pane-border-format "#{?@ap-label, #{@ap-label} ,}"
 set -g pane-border-lines single
 set -g pane-border-indicators off
 set -g message-style "bg=${c.selected},fg=${c.text}"
+# -q: these options arrived after tmux 3.2, the oldest version supported.
+set -gq popup-style "bg=${c.bg},fg=${c.text}"
+set -gq popup-border-style "fg=${c.dim},bg=${c.bg}"
+set -gq popup-border-lines single
 `;
 }
 

@@ -134,11 +134,11 @@
 | `enter` | 把焦點交給 AI 格，開始打字。選取在專案群組列時改為切換展開／收合 |
 | `z` | 把 AI 格放大到滿版並把焦點交給它；按 `ctrl+q` 還原 |
 | `n` | 在選中的專案開一個新的工作階段（選 AI） |
-| `w` | 為選中的專案建立 worktree 分支並啟動 AI |
-| `m` | 把選中的 worktree 分支合併回主線並清理 |
+| `w` | 為選中的專案建立 worktree 分支並啟動 AI，見 5.9 |
+| `m` | 把選中的 worktree 分支合併回主線並清理；只對 `w` 建立的工作階段有作用，見 5.9 |
 | `x` | 關閉選中的工作階段（需確認） |
-| `d` | 檢視該工作階段資料夾的 `git diff` |
-| `o` | 用預設瀏覽器開啟偵測到的 `http://localhost:<port>` |
+| `d` | 以浮動視窗檢視該工作階段資料夾的修改，見 5.11 |
+| `o` | 用預設瀏覽器開啟偵測到的 `http://localhost:<port>`，見 5.11 |
 | `/` | 輸入關鍵字篩選清單，邊打邊篩；`enter` 保留關鍵字回到清單，`esc` 清除 |
 | `f` | 切換「只看需要處理的」（`◐` 與 `✕`） |
 | `esc` | 篩選中時清除關鍵字與 `f` |
@@ -176,6 +176,7 @@
 | `@ap-worktree` | 是否為 AgentPulse 建立的 worktree（`1` / `0`） |
 | `@ap-created` | 建立時間（epoch 秒） |
 | `@ap-agent-session` | AI 自己的對話 id，用來找記錄檔（Claude Code 以 `--session-id` 指定；不支援指定的 AI 留空） |
+| `@ap-base` | worktree 建立當下主資料夾所在的分支，也就是之後合併回去的主線；不是 worktree 時留空 |
 
 - AgentPulse 關閉後工作階段繼續執行；重新開啟時由 tmux 讀回所有 `agentpulse-` session 及其 metadata，不另存狀態檔。
 - AI 程序結束後保留該格（`remain-on-exit`），以便讀取結束碼；由使用者按 `x` 關閉。
@@ -292,6 +293,7 @@
 
 - 專案登錄在設定檔。在某個 git 儲存庫內啟動 AgentPulse 時，自動把該儲存庫加入。
 - 清單依專案分組，組內列出工作階段（分支名稱與 AI 名稱）。
+- 同一個專案中，分支與 AI 都相同的工作階段有兩個以上時，依建立先後在 AI 名稱後加序號：第一個不加，之後為 `#2`、`#3`，例如 `dev claude #2`。資訊列第 1 行的 AI 名稱也加上同樣的序號。序號每次依目前存在的工作階段重新計算，前面的關掉後，後面的序號會往前遞補。
 - `/` 以關鍵字比對專案名、分支名、AI 名稱（不分大小寫）。`f` 只顯示 `◐` 與 `✕`。兩者可同時使用。
 - 篩選中沒有工作階段的專案群組隱藏；只有專案名稱符合關鍵字時保留該群組。沒有任何符合時清單顯示 `No matches`。
 - 清單標題下一行平時顯示 `/ filter` 提示，篩選時改為關鍵字與 `◐ ✕ only`。
@@ -300,11 +302,15 @@
 
 **建立（`w`）：** 輸入分支名稱、選擇 AI 後，依序執行：
 
-1. `git worktree add -b <branch> <path> <base>`，路徑為 `<專案上層>/<專案名>.worktrees/<branch>`。
+1. `git worktree add -b <branch> <path> <base>`，路徑為 `<專案上層>/<專案名>.worktrees/<branch>`。`<base>` 是主資料夾當下所在的分支，寫入 `@ap-base` 當作這個分支的主線。
 2. 在該資料夾建立工作階段並啟動 AI。
 3. 清單出現新的一列。
 
-**合併並清理（`m`）：** 先顯示確認對話框，列出將要執行的每一步，使用者確認後才進行：
+- 對話框在同一個畫面輸入分支名稱與選 AI（`↑` `↓` 選 AI，其餘按鍵都是打字），並即時顯示將建立的資料夾路徑與分出的來源分支。
+- 前置檢查，任何一項不過就不執行 `git worktree add`，並在對話框說明：分支名稱不是空的且格式合法（`git check-ref-format --branch`）；主資料夾在某個分支上（不是 detached HEAD）；儲存庫至少有一個 commit；同名分支不存在；目標路徑不存在或是空資料夾；選的 AI 已安裝。
+- AI 啟動失敗時不回滾：分支與資料夾留著，對話框說明狀況。移除 worktree 與刪除分支屬於需要先確認的操作，不自動執行。
+
+**合併並清理（`m`）：** 只對 `w` 建立的工作階段有作用（`@ap-worktree` 為 `1`）。先顯示確認對話框，列出將要執行的每一步，使用者確認後才進行：
 
 1. 檢查該 AI 不在 `running` 狀態，否則中止。
 2. 檢查 worktree 是否有未提交的修改；有的話請使用者輸入提交訊息後提交，或取消。
@@ -315,6 +321,17 @@
 
 - 全程不使用 `--force`、`-D`，不自動捨棄任何修改。
 - 不處理推送與 PR。
+- **檢查的時機：** 按 `m` 時先做第 1 至 3 步的檢查（都只讀取），通過才顯示確認對話框；有任何一項不過，對話框改為說明原因，不提供執行。按 `enter` 後全部重新檢查一次才開始動作，避免對話框開著的期間狀況改變。所有檢查都通過後才提交 worktree 的修改，所以中止時不會留下多餘的 commit。
+- **主線：** `@ap-base` 記錄的分支。主資料夾目前所在的分支與它不同時中止。
+- **分支：** 以 worktree 資料夾當下所在的分支為準，不用建立時記下的名稱。
+- **提交（第 2 步）：** `git add -A` 後 `git commit -m <訊息>`，包含新檔案（留著未追蹤的檔案，`git worktree remove` 會拒絕）。訊息不可空白。
+- **主資料夾的未提交修改（第 3 步）：** 只看已追蹤檔案的修改（含已 `add` 的）；未追蹤的檔案不算。主資料夾有另一個合併還沒完成（`MERGE_HEAD` 存在）時也中止，避免之後的 `git merge --abort` 還原到使用者自己的合併。
+- **合併（第 4 步）：** 加 `--no-edit`，使用 git 預設的合併訊息，不開編輯器。
+- **衝突的判定（第 5 步）：** 合併指令失敗且 `MERGE_HEAD` 存在才算衝突，此時記下衝突檔案（`git diff --name-only --diff-filter=U`）再 `git merge --abort`。指令失敗但 `MERGE_HEAD` 不存在，表示合併根本沒開始（例如主資料夾的未追蹤檔案會被蓋掉），直接回報 git 的訊息，不需要還原。兩種情況都不刪除任何東西；第 2 步的 commit 會留在該分支上。
+- **被 git 忽略的檔案：** `git worktree remove` 會連同被忽略的檔案（例如 `.env`、`node_modules`）一起刪除，M6 實測。確認對話框會列出這些項目的名稱。
+- **清理失敗：** 第 6 步任何一個指令失敗就停下來，說明已完成到哪一步、剩下什麼還在，不改用強制選項。
+- 清理成功後，`<專案名>.worktrees/` 底下因分支名稱含 `/` 而留下的空資料夾一併移除（只移除空的）。
+- 修改資料的 git 指令（提交、合併、移除 worktree）逾時為 120 秒，其餘查詢維持 5 秒。
 
 ### 5.10 衝突預警
 
@@ -322,11 +339,22 @@
   - 未提交的修改（`git status --porcelain`）
   - 該分支相對主線已提交的修改（`git diff --name-only <merge-base>...HEAD`）
 - 同一個檔案出現在兩個以上的工作資料夾時，在清單下方顯示檔名與涉及的分支數。
+- 以工作資料夾為單位：同一個資料夾開了多個 AI 只算一份。
+- 這裡的主線是主資料夾當下的 `HEAD`；主資料夾本身只算未提交的修改。
+- 未提交的修改以 `git status --porcelain -z --untracked-files=all` 讀取：新資料夾裡的檔案逐一列出，中文檔名不會被轉成跳脫字元；改名同時算新舊兩個路徑。
+- 清單下方只顯示選取所在專案的提示：一行標題（`! conflict · N branches`，N 為涉及的分支總數）加檔名，檔名最多佔 4 行；超過 4 個時列前 3 個，第 4 行顯示 `+N more`。其他專案有衝突時，該專案群組列的數量前面顯示警示色的 `!`。對話框開啟時提示暫時隱藏。
+- 工作階段清單有變動（新增、關閉、合併完成）時立即重新掃描一次，不等下一個 15 秒。
 
 ### 5.11 Diff 與開啟網頁
 
 - `d`：以 tmux 浮動視窗顯示 `git diff --color=always`，用系統分頁程式捲動（`display-popup`，需 tmux 3.2 以上）。
-- `o`：偵測到一個 port 時直接 `open http://localhost:<port>`；多個時先讓使用者選。
+  - 內容為 `git diff HEAD`（已追蹤檔案相對上一個 commit 的所有修改，與資訊列的增刪行數同一個基準；儲存庫還沒有 commit 時退回 `git diff`），之後列出未追蹤的檔名。
+  - 分頁程式為 `less -R -c`，底部提示列寫明 `q` 關閉與捲動方式。浮動視窗佔視窗的 90%。不加 `-c` 時，比視窗短的 diff 會貼在浮動視窗底部、上方一片空白（M6 實測）。
+  - 浮動視窗開著時暫停重畫資訊列，關閉後立即補畫。資訊列每秒寫入一次，內容會穿透到浮動視窗上（M6 實測）。
+  - 沒有任何修改時不開視窗，在清單下方顯示一行提示。
+  - `tmux display-popup` 指令會等到浮動視窗關閉才返回（M6 實測），這個呼叫的逾時設為 1 小時；指令被中止時浮動視窗仍留在畫面上，不影響 server（M6 實測）。
+- `o`：偵測到一個 port 時直接 `open http://localhost:<port>`；多個時先讓使用者選。port 取自資訊列的偵測結果（5.5）；沒有偵測到時顯示一行提示。
+- 清單下方的一次性提示（沒有修改、沒有 port、合併完成等）在下一次按鍵時清除。
 
 ### 5.12 後段功能
 
@@ -413,8 +441,9 @@ src/
   bootstrap/         相依檢查、產生 tmux 設定、建立版面、attach
   app/               清單程式的組裝：鍵盤路由、焦點狀態、對話框狀態機
   ui/                Ink 元件（只讀 state）
-    SessionList  GroupRow  SessionRow  ConflictNote  KeyHints
-    dialogs/         新增工作階段、worktree、合併確認、關閉確認、說明
+    SessionList  GroupRow  SessionRow  KeyHints  Lines
+    conflictLines.ts 衝突提示的排版（純函式）
+    dialogs/         新增工作階段、worktree、合併確認、開啟網頁、關閉確認、說明
     theme.ts         配色與符號常數
     text.ts          string-width 包裝：截斷、補白、對齊
   hud/               資訊列與頂列的排版（純函式）與輸出
@@ -425,7 +454,7 @@ src/
     layout.ts        AI 格切換、放大、多宮格
     status/          狀態分類、卡頓、通知觸發
     context/         用量估算與視窗對照
-    accounts.ts  worktree.ts  conflictRadar.ts  ports.ts  tokens.ts
+    accounts.ts  worktree.ts  conflictRadar.ts  diff.ts  ports.ts  tokens.ts
   agents/            每家 AI 一個 adapter
     types.ts  claude.ts  codex.ts  agy.ts
   infra/             對外唯一出口
@@ -488,14 +517,14 @@ interface AgentAdapter {
 interface Platform {
   binDirs: string[];                       // PATH 找不到程式時依序嘗試的資料夾
   notify(title: string, body: string): Promise<boolean>;   // false：送出失敗，只記錄不中斷
-  openUrl(url: string): Promise<void>;
+  openUrl(url: string): Promise<boolean>;                  // false：開啟失敗
   listeningPorts(): Promise<Array<{ pid: number; port: number }>>;
   processTree(): Promise<Array<{ pid: number; ppid: number; command: string }>>;
   processCwds(pids: number[]): Promise<Map<number, string>>;   // M4 追加，見 5.5 本機 port
 }
 ```
 
-第一階段只實作 `darwin.ts`。`wsl.ts` 僅保留介面，呼叫時丟出「尚未支援」。`binDirs` 在 M1 加入：macOS 為 `/opt/homebrew/bin`、`/usr/local/bin`、`~/.local/bin`（agy 與 Claude Code 原生安裝程式的位置），讓 6.2 啟動流程第 1 步的備援路徑不寫死在平台模組以外。`notify` 於 M3、`listeningPorts`（`lsof -nP -iTCP -sTCP:LISTEN -Fpn`）與 `processTree`（`ps -axo pid=,ppid=,command=`）、`processCwds`（`lsof -a -d cwd -p <pids> -Fpn`）於 M4 實作，`openUrl` 於 M6。
+第一階段只實作 `darwin.ts`。`wsl.ts` 僅保留介面，呼叫時丟出「尚未支援」。`binDirs` 在 M1 加入：macOS 為 `/opt/homebrew/bin`、`/usr/local/bin`、`~/.local/bin`（agy 與 Claude Code 原生安裝程式的位置），讓 6.2 啟動流程第 1 步的備援路徑不寫死在平台模組以外。`notify` 於 M3、`listeningPorts`（`lsof -nP -iTCP -sTCP:LISTEN -Fpn`）與 `processTree`（`ps -axo pid=,ppid=,command=`）、`processCwds`（`lsof -a -d cwd -p <pids> -Fpn`）於 M4 實作，`openUrl`（`/usr/bin/open <url>`）於 M6。
 
 ### 6.6 輪詢排程
 
@@ -602,6 +631,13 @@ interface Platform {
 | Adapter 資料方法為非同步、無參數 | 改為同步並接收 `HostFs` | M4 實作時調整，見 6.4 |
 | （原始需求未涵蓋）Context 用量的計算方式 | 只算輸入 token；壓縮後以基底加壓縮後 token 數估算；以程序 id 跟上 `/clear` 後的新對話 | M5 實測與 Claude Code `/context` 對照，見 5.6 |
 | agy、Codex 的 Context 用量 | 暫不支援，顯示 `context —` | agy 畫面不顯示用量、對話存在 SQLite；Codex 延後 |
+| （原始需求未涵蓋）合併的「主線」是哪個分支 | 建立 worktree 當下主資料夾所在的分支，存入 `@ap-base` | M6 定義；合併前要能檢查主資料夾是否還在同一個分支上 |
+| 合併流程的檢查在確認之後才做 | 按 `m` 時先檢查一次再顯示對話框，確認後重新檢查 | 對話框才能說明是否需要提交訊息；不過的項目直接說明原因 |
+| （原始需求未涵蓋）worktree 裡被 git 忽略的檔案 | 確認對話框列出會跟著資料夾一起刪除的項目 | M6 實測 `git worktree remove` 會刪掉 `.env`、`node_modules` 這類檔案而不警告 |
+| `d` 顯示 `git diff` | 顯示 `git diff HEAD`，並列出未追蹤的檔名 | 與資訊列的增刪行數同一個基準；AI 新增的檔案也看得到 |
+| 衝突提示顯示在清單下方 | 只顯示選取所在專案的提示，其他專案在群組列標 `!` | 左欄只有 30 欄，檔名無法同時標示專案 |
+| `openUrl` 回傳 `Promise<void>` | 改回傳是否成功 | 失敗時要能在清單下方提示 |
+| （原始需求未涵蓋）同分支多個 AI 無法分辨 | 在 AI 名稱後加 `#2`、`#3` | 使用者 2026-11-15 決定；序號只佔 3 欄，比建立時間省寬度 |
 
 ---
 

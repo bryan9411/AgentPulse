@@ -3,17 +3,28 @@ import {aiAttachCommand, aiPlaceholderCommand} from '../bootstrap/aiPane.ts';
 import {agentsTmuxConf, confPaths} from '../bootstrap/tmuxConf.ts';
 import {configFile, loadConfig, saveConfig} from '../config/config.ts';
 import {hudFrame, hudLines, topBarFormat, type HudInput} from '../hud/hud.ts';
-import {messageText, msg, nextLang, type Lang} from '../i18n/strings.ts';
+import {messageText, msg, nextLang, strings, type Lang, type Message} from '../i18n/strings.ts';
 import {hostFs, mtimeMs, writeTextAtomic} from '../infra/fsx.ts';
-import {gitStats} from '../infra/git.ts';
+import {currentBranch, gitStats, statusEntries} from '../infra/git.ts';
 import {logError} from '../infra/log.ts';
 import {platform} from '../infra/platform/index.ts';
 import {continueProcessGroup, onRefreshSignal} from '../infra/signal.ts';
 import type {Tmux} from '../infra/tmux.ts';
 import * as A from '../state/actions.ts';
-import {isViewing, selectedRow, selectedSession, sessionCount, statusCounts, windowTooSmall} from '../state/selectors.ts';
+import {
+	agentLabel,
+	isViewing,
+	mergeSettled,
+	selectedProjectPath,
+	selectedRow,
+	selectedSession,
+	sessionCount,
+	sessionState,
+	statusCounts,
+	windowTooSmall,
+} from '../state/selectors.ts';
 import type {Store} from '../state/store.ts';
-import type {AppState, SessionSummary} from '../state/types.ts';
+import type {AppState, MergeDialog, SessionSummary, WorktreeDialog} from '../state/types.ts';
 import {GLYPHS} from '../ui/theme.ts';
 import {
 	clearLabel,
@@ -26,23 +37,40 @@ import {
 	readPanes,
 	redrawPlaceholder,
 	setTopBar,
+	showPopup,
 	showSession,
 	zoomAi,
 	type UiPanes,
 } from '../services/layout.ts';
 import {readAccounts} from '../services/accounts.ts';
+import {scanProject, type Conflict} from '../services/conflictRadar.ts';
+import {diffCommand} from '../services/diff.ts';
 import {contextView, contextWindow} from '../services/context/usage.ts';
 import {gitDue, readFacts} from '../services/details.ts';
 import {sessionPorts} from '../services/ports.ts';
 import {addProject} from '../services/projects.ts';
 import {createScheduler, exclusive} from '../services/scheduler.ts';
-import {agentChoices, captureScreen, closeSession, createSession, listSessions, reloadSessionConf} from '../services/sessions.ts';
+import {
+	agentChoices,
+	captureScreen,
+	closeSession,
+	createSession,
+	listSessions,
+	reloadSessionConf,
+	sessionExists,
+	type CreateResult,
+} from '../services/sessions.ts';
+import {createWorktree, planMerge, runMerge, type MergeCheck, type MergeTarget} from '../services/worktree.ts';
 import {enteredAlert, isStalled, nextStatus, type SessionStatus} from '../services/status/machine.ts';
 import {notificationText, resumeAllowed, shouldNotify, type NotifyLog} from '../services/status/notify.ts';
 
 export type Controller = {
 	submitDialog(): Promise<void>;
 	openNewSession(): void;
+	openWorktree(): void;
+	openMerge(): void;
+	showDiff(): Promise<void>;
+	openWeb(): Promise<void>;
 	focusAi(): Promise<void>;
 	zoomAi(): Promise<void>;
 	quit(): Promise<void>;
@@ -65,6 +93,7 @@ const GIT_POLL_MS = 5000;
 const PORTS_POLL_MS = 5000;
 const FACTS_POLL_MS = 60_000;
 const ACCOUNTS_POLL_MS = 60_000;
+const RADAR_POLL_MS = 15_000;
 
 function hudInput(state: AppState): HudInput {
 	const row = selectedRow(state);
@@ -86,6 +115,7 @@ function hudInput(state: AppState): HudInput {
 		project,
 		session: session && {
 			...session,
+			agent: agentLabel(state, session),
 			state: status?.state ?? null,
 			stalled: status ? isStalled(status, now) : false,
 			details: d && {
@@ -114,6 +144,8 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 	let hudWidth = 0;
 	let lastFrame = '';
 	let lastTopBar = '';
+	// While a popup is up, HUD writes show through it (M6), so they wait.
+	let popupOpen = false;
 	let configMtime = mtimeMs(configFile(configDir));
 	const scheduler = createScheduler(reportError);
 	const timers: Array<ReturnType<typeof setInterval>> = [];
@@ -129,7 +161,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		if (!panes || hudWidth <= 0) return;
 		const state = store.get();
 		const frame = hudFrame(hudLines(hudInput(state), hudWidth));
-		if (force || frame !== lastFrame) {
+		if (!popupOpen && (force || frame !== lastFrame)) {
 			if (paintHud(panes, frame)) lastFrame = frame;
 			else logError('hud: could not write to the HUD tty');
 		}
@@ -195,14 +227,17 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 			logError('sessions: listing failed; keeping the previous list');
 			return;
 		}
-		const sessions: SessionSummary[] = found.map(({id, project, cwd, branch, agent, dead, exitStatus, created, agentSession}) => ({
-			id, project, cwd, branch, agent, dead, exitStatus, created, agentSession,
+		const sessions: SessionSummary[] = found.map(({id, project, cwd, branch, agent, dead, exitStatus, created, agentSession, worktree, base}) => ({
+			id, project, cwd, branch, agent, dead, exitStatus, created, agentSession, worktree, base,
 		}));
 		pids.clear();
 		for (const record of found) if (!record.dead && record.pid) pids.set(record.id, record.pid);
-		const hadSessions = store.get().sessions.length > 0;
+		const before = store.get().sessions;
+		const hadSessions = before.length > 0;
 		store.set(s => A.setSessions(s, sessions));
 		void pollNewFacts();
+		// A folder joined or left: the conflict note should not lag 15 s behind.
+		if (store.get().sessions !== before) void pollRadar();
 		// The embedded client exits with the last session; drop its label too.
 		if (sessions.length === 0 && hadSessions) {
 			shown = null;
@@ -344,6 +379,27 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		store.set(s => A.setAccounts(s, accounts));
 	};
 
+	// SPEC 5.10: only projects whose sessions work in two or more folders.
+	const refreshConflicts = async () => {
+		const folders = new Map<string, Map<string, string>>();
+		for (const session of store.get().sessions) {
+			const byCwd = folders.get(session.project) ?? new Map<string, string>();
+			if (!byCwd.has(session.cwd)) byCwd.set(session.cwd, session.branch);
+			folders.set(session.project, byCwd);
+		}
+		const scanned = await Promise.all(
+			[...folders]
+				.filter(([, byCwd]) => byCwd.size >= 2)
+				.map(async ([project, byCwd]) => {
+					const found = await scanProject(project, [...byCwd].map(([cwd, branch]) => ({cwd, branch})));
+					return [project, found] as const;
+				}),
+		);
+		const conflicts: Record<string, Conflict[]> = {};
+		for (const [project, found] of scanned) if (found.length > 0) conflicts[project] = found;
+		store.set(s => A.setConflicts(s, conflicts));
+	};
+
 	// Toggles only while something blinks, so an idle list is not redrawn.
 	const blink = () => {
 		const state = store.get();
@@ -418,6 +474,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 	scheduler.every(FACTS_POLL_MS, 'facts', () => refreshFacts(false));
 	const pollAccounts = scheduler.every(ACCOUNTS_POLL_MS, 'accounts', refreshAccounts);
 	void pollAccounts();
+	const pollRadar = scheduler.every(RADAR_POLL_MS, 'radar', refreshConflicts);
 	timers.push(setInterval(blink, BLINK_MS));
 	// "up 42m" and "output 3s ago" age without any state change.
 	timers.push(setInterval(() => paintChrome(false), CLOCK_MS));
@@ -446,65 +503,216 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		if (!ok) logError(`focus: select-pane failed (zoom=${zoom})`);
 	};
 
-	const submitNewSession = async (project: string, agent: string) => {
-		if (!panes) return;
-		const size = await readAiPane(ui, panes);
-		const result = await createSession(agents, {
-			agent,
-			project,
-			cwd: project,
+	// Sized to the AI pane so the first frame is not drawn for another size.
+	const startSession = async (opts: {agent: string; project: string; cwd: string; base?: string}): Promise<CreateResult> => {
+		const size = panes && (await readAiPane(ui, panes));
+		return createSession(agents, {
+			...opts,
+			worktree: opts.base !== undefined,
 			confPath: agentsConf,
 			width: size?.width ?? 120,
 			height: size?.height ?? 36,
 		});
+	};
+
+	// A new AI is opened to be talked to.
+	const enterSession = async (id: string) => {
+		await refreshSessions();
+		store.set(s => A.closeDialog(A.selectSession(s, id)));
+		await giveFocus(false);
+	};
+
+	const submitNewSession = async (project: string, agent: string) => {
+		const result = await startSession({agent, project, cwd: project});
 		if (!result.ok) {
 			logError(`new session: ${messageText('en', result.error)}`);
 			store.set(s => A.setDialogError(s, result.error));
 			return;
 		}
-		await refreshSessions();
-		store.set(s => A.closeDialog(A.selectSession(s, result.id)));
-		// A new AI is opened to be talked to.
-		await giveFocus(false);
+		await enterSession(result.id);
 	};
 
-	const submitCloseSession = async (id: string) => {
-		if (!(await closeSession(agents, id))) {
-			store.set(s => A.setDialogError(s, msg('cannotClose')));
-			return;
-		}
+	// True once the session is gone, whoever closed it.
+	const closeAndForget = async (id: string): Promise<boolean> => {
+		if (!(await closeSession(agents, id)) && (await sessionExists(agents, id))) return false;
 		if (shown === id) shown = null;
-		await refreshSessions();
-		store.set(A.closeDialog);
+		return true;
+	};
+
+	const afterClose = async () => {
 		await syncAi(true);
 		// The fallback placeholder carries the language of when it was attached.
 		if (shown === null) await refreshPlaceholder();
 	};
 
+	const submitCloseSession = async (id: string) => {
+		if (!(await closeAndForget(id))) {
+			store.set(s => A.setDialogError(s, msg('cannotClose')));
+			return;
+		}
+		await refreshSessions();
+		store.set(A.closeDialog);
+		await afterClose();
+	};
+
+	// ---- Worktrees, merge, diff, open (SPEC 5.9–5.11) ----
+
+	const flash = (message: Message) => store.set(s => A.setFlash(s, message));
+
+	const submitWorktree = async (dialog: WorktreeDialog, agent: string) => {
+		const made = await createWorktree(dialog.project, dialog.value);
+		if (!made.ok) {
+			store.set(s => A.setDialogError(s, made.error));
+			return;
+		}
+		const result = await startSession({agent, project: dialog.project, cwd: made.path, base: made.base});
+		if (!result.ok) {
+			// Not rolled back: removing a worktree and its branch is the user's call.
+			logError(`worktree ${made.path}: ${messageText('en', result.error)}`);
+			store.set(s => A.setDialogError(s, msg('worktreeNoAi')));
+			return;
+		}
+		await enterSession(result.id);
+	};
+
+	const mergeTarget = (session: SessionSummary): MergeTarget => ({
+		project: session.project,
+		cwd: session.cwd,
+		base: session.base,
+		worktree: session.worktree,
+		running: sessionState(store.get(), session) === 'running',
+	});
+
+	const submitMerge = async (dialog: MergeDialog) => {
+		const id = dialog.session.id;
+		// The session as it is now: the AI may have started working since m.
+		const target = mergeTarget(store.get().sessions.find(s => s.id === id) ?? dialog.session);
+		const outcome = await runMerge(target, dialog.value, {closeSession: () => closeAndForget(id)});
+		if (outcome.kind === 'blocked') {
+			// What the dialog shows is out of date; lay the steps out again.
+			const check = await planMerge(target);
+			store.set(s => A.setMergeCheck(s, id, check));
+			if (check.ok) store.set(s => A.setDialogError(s, outcome.error));
+			return;
+		}
+		logError(`merge ${target.cwd}: ${JSON.stringify(outcome)}`);
+		await refreshSessions();
+		if (outcome.kind === 'merged') store.set(s => A.setFlash(A.closeDialog(s), msg('merged', outcome.branch, outcome.base)));
+		else store.set(s => A.setMergeOutcome(s, id, outcome));
+		await afterClose();
+		void pollGit();
+	};
+
+	const openPort = async (port: number): Promise<boolean> => {
+		const ok = await platform.openUrl(`http://localhost:${port}`);
+		if (!ok) logError(`open: could not open http://localhost:${port}`);
+		return ok;
+	};
+
+	// One popup at a time: tmux holds this call until the user closes it.
+	const showDiff = exclusive(
+		'diff',
+		async () => {
+			const session = selectedSession(store.get());
+			if (!session) return;
+			const changes = await statusEntries(session.cwd);
+			if (!changes || changes.length === 0) {
+				flash(msg(changes ? 'noChanges' : 'diffFailed'));
+				return;
+			}
+			const labels = strings(store.get().config.language).diff;
+			popupOpen = true;
+			try {
+				if (!(await showPopup(ui, diffCommand(session.cwd, labels)))) logError(`diff: the popup for ${session.id} did not end cleanly`);
+			} finally {
+				popupOpen = false;
+				paintChrome(true);
+			}
+		},
+		reportError,
+	);
+
 	return {
 		async submitDialog() {
 			const dialog = store.get().dialog;
 			if (!dialog || dialog.busy) return;
-			if (dialog.kind === 'new-session') {
+			if (dialog.kind === 'merge') {
+				// Refused, or done: there is only something to read.
+				if (mergeSettled(dialog)) store.set(A.closeDialog);
+				if (mergeSettled(dialog) || !dialog.plan) return;
+				if (dialog.plan.dirty > 0 && !dialog.value.trim()) {
+					store.set(s => A.setDialogError(s, msg('needMessage')));
+					return;
+				}
+			}
+			let agent = '';
+			if (dialog.kind === 'new-session' || dialog.kind === 'worktree') {
 				const option = dialog.options[dialog.index];
 				if (!option) return;
 				if (!option.installed) {
 					store.set(s => A.setDialogError(s, msg('notInstalled', option.id)));
 					return;
 				}
+				agent = option.id;
 			}
 			store.set(s => A.setDialogBusy(s, true));
+			const working = store.get().dialog;
 			try {
 				if (dialog.kind === 'add-project') await submitAddProject(dialog.value);
-				else if (dialog.kind === 'new-session') await submitNewSession(dialog.project, dialog.options[dialog.index]?.id ?? '');
-				else await submitCloseSession(dialog.session.id);
+				else if (dialog.kind === 'new-session') await submitNewSession(dialog.project, agent);
+				else if (dialog.kind === 'worktree') await submitWorktree(dialog, agent);
+				else if (dialog.kind === 'merge') await submitMerge(dialog);
+				else if (dialog.kind === 'open-url') {
+					const port = dialog.ports[dialog.index];
+					if (port !== undefined && (await openPort(port))) store.set(A.closeDialog);
+					else store.set(s => A.setDialogError(s, msg('openFailed')));
+				} else await submitCloseSession(dialog.session.id);
 			} catch (error) {
 				logError(`dialog ${dialog.kind}: ${String(error)}`);
 				store.set(s => A.setDialogError(s, msg('failed')));
+			} finally {
+				// Keys are ignored while busy, so it must never be left set.
+				store.set(s => (s.dialog === working ? A.setDialogBusy(s, false) : s));
 			}
 		},
 		openNewSession() {
 			store.set(s => A.openNewSession(s, agentChoices()));
+		},
+		openWorktree() {
+			const project = selectedProjectPath(store.get());
+			if (!project) return;
+			// Opened at once so the next keys are typed into it; the branch it
+			// will be cut from is filled in when git answers.
+			store.set(s => A.openWorktree(s, agentChoices()));
+			void currentBranch(project).then(base => {
+				if (base) store.set(s => A.setWorktreeBase(s, project, base));
+				else store.set(s => (s.dialog?.kind === 'worktree' && s.dialog.project === project ? A.setDialogError(s, msg('mainNoBranch')) : s));
+			});
+		},
+		openMerge() {
+			const session = selectedSession(store.get());
+			if (!session) return;
+			if (!session.worktree) {
+				flash(msg('notWorktree'));
+				return;
+			}
+			store.set(A.openMerge);
+			void planMerge(mergeTarget(session))
+				.catch((error): MergeCheck => {
+					logError(`merge check: ${String(error)}`);
+					return {ok: false, error: msg('failed')};
+				})
+				.then(check => store.set(s => A.setMergeCheck(s, session.id, check)));
+		},
+		showDiff,
+		async openWeb() {
+			const state = store.get();
+			const session = selectedSession(state);
+			if (!session) return;
+			const ports = state.details[session.id]?.ports ?? [];
+			if (ports.length === 0) flash(msg('noPorts'));
+			else if (ports.length > 1) store.set(s => A.openUrlChoice(s, [...ports]));
+			else if (!(await openPort(ports[0] ?? 0))) flash(msg('openFailed'));
 		},
 		focusAi: () => giveFocus(false),
 		zoomAi: () => giveFocus(true),

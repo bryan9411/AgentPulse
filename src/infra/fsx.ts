@@ -1,4 +1,4 @@
-import {closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, statSync, writeFileSync, writeSync} from 'node:fs';
+import {closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmdirSync, statSync, writeFileSync, writeSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {dirname, isAbsolute, join, resolve} from 'node:path';
 
@@ -36,6 +36,32 @@ export function isDirectory(path: string): boolean {
 		return statSync(path).isDirectory();
 	} catch {
 		return false;
+	}
+}
+
+// A path git can create a worktree at: nothing there yet, or an empty folder.
+export function missingOrEmptyDir(path: string): boolean {
+	if (!existsSync(path)) return true;
+	try {
+		return statSync(path).isDirectory() && readdirSync(path).length === 0;
+	} catch {
+		return false;
+	}
+}
+
+// Walks up from `from` to `stopAt` (inclusive) removing folders, and stops at
+// the first one that is not empty: rmdir never deletes content.
+export function removeEmptyDirs(from: string, stopAt: string): void {
+	let dir = resolve(from);
+	const top = resolve(stopAt);
+	while (dir === top || dir.startsWith(`${top}/`)) {
+		try {
+			rmdirSync(dir);
+		} catch {
+			return;
+		}
+		if (dir === top) return;
+		dir = dirname(dir);
 	}
 }
 

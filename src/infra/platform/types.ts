@@ -1,4 +1,3 @@
-// openUrl joins this interface in M6.
 export type ListeningPort = {pid: number; port: number};
 export type ProcessEntry = {pid: number; ppid: number; command: string};
 
@@ -12,4 +11,6 @@ export type Platform = {
 	processTree(): Promise<ProcessEntry[] | null>;
 	// Working folder of each given process; missing entries are unknown.
 	processCwds(pids: readonly number[]): Promise<Map<number, string>>;
+	// In the default browser; false when it could not be opened.
+	openUrl(url: string): Promise<boolean>;
 };

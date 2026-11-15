@@ -1,9 +1,11 @@
 import {basename} from 'node:path';
 import {DEFAULT_CONFIG, type Config} from '../config/config.ts';
 import {ALERT_STATES, type SessionStatus} from '../services/status/machine.ts';
-import {isViewing, projectKey, selectedIndex, selectedRow, sessionKey, visibleRows} from './selectors.ts';
+import {acceptsText, isViewing, projectKey, selectedIndex, selectedProjectPath, selectedRow, sessionKey, visibleRows} from './selectors.ts';
 import type {AccountMark} from '../services/accounts.ts';
+import type {Conflict} from '../services/conflictRadar.ts';
 import type {SessionDetails} from '../services/details.ts';
+import type {MergeCheck, MergeOutcome} from '../services/worktree.ts';
 import type {Lang, Message} from '../i18n/strings.ts';
 import type {AgentOption, AppState, Project, SessionSummary} from './types.ts';
 
@@ -20,6 +22,7 @@ export function initialState(config: Config = DEFAULT_CONFIG): AppState {
 		zoomed: false,
 		window: null,
 		notice: null,
+		flash: null,
 		statuses: {},
 		attention: [],
 		blinkOn: true,
@@ -27,6 +30,7 @@ export function initialState(config: Config = DEFAULT_CONFIG): AppState {
 		attentionOnly: false,
 		details: {},
 		accounts: [],
+		conflicts: {},
 	});
 }
 
@@ -126,7 +130,7 @@ export function openAddProject(state: AppState): AppState {
 
 export function editDialog(state: AppState, edit: (value: string) => string): AppState {
 	const d = state.dialog;
-	if (d?.kind !== 'add-project' || d.busy) return state;
+	if (!d || d.busy || !acceptsText(d)) return state;
 	return {...state, dialog: {...d, value: edit(d.value), error: null}};
 }
 
@@ -141,9 +145,54 @@ export function openNewSession(state: AppState, options: AgentOption[]): AppStat
 
 export function moveDialogChoice(state: AppState, delta: number): AppState {
 	const d = state.dialog;
-	if (d?.kind !== 'new-session' || d.busy || d.options.length === 0) return state;
-	const index = Math.min(d.options.length - 1, Math.max(0, d.index + delta));
+	if (!d || d.busy || (d.kind !== 'new-session' && d.kind !== 'worktree' && d.kind !== 'open-url')) return state;
+	const count = d.kind === 'open-url' ? d.ports.length : d.options.length;
+	if (count === 0) return state;
+	const index = Math.min(count - 1, Math.max(0, d.index + delta));
 	return index === d.index ? state : {...state, dialog: {...d, index, error: null}};
+}
+
+// w works from a group row or any of its session rows, like n.
+export function openWorktree(state: AppState, options: AgentOption[]): AppState {
+	const project = selectedProjectPath(state);
+	if (!project) return state;
+	const index = Math.max(0, options.findIndex(o => o.installed));
+	return {...state, dialog: {kind: 'worktree', project, base: null, value: '', options, index, error: null, busy: false}};
+}
+
+export function setWorktreeBase(state: AppState, project: string, base: string): AppState {
+	const d = state.dialog;
+	if (d?.kind !== 'worktree' || d.project !== project || d.base === base) return state;
+	return {...state, dialog: {...d, base}};
+}
+
+// Opens busy: the checks of SPEC 5.9 run before anything is offered.
+export function openMerge(state: AppState): AppState {
+	const row = selectedRow(state);
+	if (row?.kind !== 'session') return state;
+	return {
+		...state,
+		dialog: {kind: 'merge', session: row.session, plan: null, blocked: null, value: '', outcome: null, error: null, busy: true},
+	};
+}
+
+export function setMergeCheck(state: AppState, id: string, check: MergeCheck): AppState {
+	const d = state.dialog;
+	if (d?.kind !== 'merge' || d.session.id !== id) return state;
+	return {
+		...state,
+		dialog: check.ok ? {...d, plan: check.plan, blocked: null, busy: false} : {...d, plan: null, blocked: check.error, error: null, busy: false},
+	};
+}
+
+export function setMergeOutcome(state: AppState, id: string, outcome: MergeOutcome): AppState {
+	const d = state.dialog;
+	if (d?.kind !== 'merge' || d.session.id !== id) return state;
+	return {...state, dialog: {...d, outcome, error: null, busy: false}};
+}
+
+export function openUrlChoice(state: AppState, ports: number[]): AppState {
+	return {...state, dialog: {kind: 'open-url', ports, index: 0, error: null, busy: false}};
 }
 
 export function openCloseSession(state: AppState): AppState {
@@ -178,6 +227,10 @@ export function setFocus(state: AppState, focus: AppState['focus'], zoomed: bool
 export function setNotice(state: AppState, notice: Message | null): AppState {
 	const same = state.notice === notice || (state.notice !== null && notice !== null && state.notice.key === notice.key && state.notice.arg === notice.arg);
 	return same ? state : {...state, notice};
+}
+
+export function setFlash(state: AppState, flash: Message | null): AppState {
+	return state.flash === flash ? state : {...state, flash};
 }
 
 export function setLanguage(state: AppState, language: Lang): AppState {
@@ -243,4 +296,8 @@ export function setDetails(state: AppState, id: string, patch: Partial<SessionDe
 
 export function setAccounts(state: AppState, accounts: AccountMark[]): AppState {
 	return JSON.stringify(state.accounts) === JSON.stringify(accounts) ? state : {...state, accounts};
+}
+
+export function setConflicts(state: AppState, conflicts: Record<string, Conflict[]>): AppState {
+	return JSON.stringify(state.conflicts) === JSON.stringify(conflicts) ? state : {...state, conflicts};
 }

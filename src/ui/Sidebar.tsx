@@ -2,23 +2,41 @@ import React from 'react';
 import {Box, Text} from 'ink';
 import {MIN_WINDOW} from '../config/layout.ts';
 import {messageText, strings, type Lang} from '../i18n/strings.ts';
-import {filterActive, selectedIndex, visibleRows, windowTooSmall} from '../state/selectors.ts';
+import {filterActive, mergeSettled, selectedConflicts, selectedIndex, visibleRows, windowTooSmall, worktreeDialogPath} from '../state/selectors.ts';
 import type {AppState, Dialog, Project} from '../state/types.ts';
+import {conflictLines} from './conflictLines.ts';
 import {AddProjectDialog} from './dialogs/AddProjectDialog.tsx';
 import {CloseSessionDialog, CLOSE_SESSION_DIALOG_ROWS} from './dialogs/CloseSessionDialog.tsx';
+import {mergeLines} from './dialogs/mergeLines.ts';
 import {NewSessionDialog, newSessionDialogRows} from './dialogs/NewSessionDialog.tsx';
+import {openUrlLines} from './dialogs/openUrlLines.ts';
+import {worktreeLines} from './dialogs/worktreeLines.ts';
 import {KeyHints, listHints} from './KeyHints.tsx';
+import {Lines} from './Lines.tsx';
+import {line, type Line} from './lineParts.ts';
 import {SessionList} from './SessionList.tsx';
 import {COLORS, GLYPHS, type Glyphs} from './theme.ts';
-import {padEnd, truncateStart, width as cells} from './text.ts';
+import {padEnd, truncateStart, width as cells, wrap} from './text.ts';
 
 type Props = {state: AppState; columns: number; rows: number};
 
 const HEADER_ROWS = 2;
 const ADD_PROJECT_DIALOG_ROWS = 5;
 
-function dialogRows(dialog: Dialog | null): number {
+const projectName = (projects: Project[], path: string) => projects.find(p => p.path === path)?.name ?? path;
+
+// The M6 dialogs vary in height, so they are laid out as data first; null
+// for the fixed-height ones, which are components.
+function dialogLines(dialog: Dialog, projects: Project[], width: number, lang: Lang): Line[] | null {
+	if (dialog.kind === 'merge') return mergeLines(dialog, lang, width);
+	if (dialog.kind === 'open-url') return openUrlLines(dialog, lang, width);
+	if (dialog.kind !== 'worktree') return null;
+	return worktreeLines(dialog, {projectName: projectName(projects, dialog.project), path: worktreeDialogPath(dialog)}, lang, width);
+}
+
+function dialogRows(dialog: Dialog | null, lines: Line[] | null): number {
 	if (!dialog) return 0;
+	if (lines) return lines.length;
 	if (dialog.kind === 'add-project') return ADD_PROJECT_DIALOG_ROWS;
 	if (dialog.kind === 'new-session') return newSessionDialogRows(dialog);
 	return CLOSE_SESSION_DIALOG_ROWS;
@@ -27,8 +45,8 @@ function dialogRows(dialog: Dialog | null): number {
 function DialogView({dialog, projects, width, lang}: {dialog: Dialog; projects: Project[]; width: number; lang: Lang}) {
 	if (dialog.kind === 'add-project') return <AddProjectDialog dialog={dialog} width={width} lang={lang} />;
 	if (dialog.kind === 'close-session') return <CloseSessionDialog dialog={dialog} width={width} lang={lang} />;
-	const name = projects.find(p => p.path === dialog.project)?.name ?? dialog.project;
-	return <NewSessionDialog dialog={dialog} projectName={name} width={width} lang={lang} />;
+	if (dialog.kind !== 'new-session') return null;
+	return <NewSessionDialog dialog={dialog} projectName={projectName(projects, dialog.project)} width={width} lang={lang} />;
 }
 
 // SPEC 3: the line under the title doubles as the `/` hint and the field.
@@ -74,12 +92,21 @@ export function Sidebar({state, columns, rows}: Props) {
 		row: rowsData[index]?.kind ?? null,
 		editingFilter: state.filter.editing,
 		filtered: filterActive(state),
+		mergeSettled: state.dialog?.kind === 'merge' && mergeSettled(state.dialog),
 	}, lang);
-	const footerRows = 1 + hints.length + (state.notice ? 1 : 0) + dialogRows(state.dialog);
-	const listHeight = Math.max(1, rows - HEADER_ROWS - footerRows);
+	const lines = state.dialog ? dialogLines(state.dialog, state.projects, inner, lang) : null;
+	// A dialog needs the room, and the note would only distract from it.
+	const conflicts = state.dialog ? [] : conflictLines(selectedConflicts(state), lang, inner);
+	// The answer to the last key outranks a standing notice.
+	const message = state.flash ?? state.notice;
+	const notice = message ? wrap(messageText(lang, message), inner).map(text => line(text)) : [];
+	const footerRows = 1 + hints.length + notice.length + conflicts.length + dialogRows(state.dialog, lines);
+	const listHeight = Math.max(0, rows - HEADER_ROWS - footerRows);
 
+	// overflow: in a very short window a tall dialog clips the hints rather
+	// than pushing the screen into scrolling.
 	return (
-		<Box flexDirection="column" width={columns} height={rows} paddingX={1}>
+		<Box flexDirection="column" width={columns} height={rows} paddingX={1} overflow="hidden">
 			<Text color={COLORS.dim}>{padEnd(t.title, inner)}</Text>
 			<FilterLine state={state} width={inner} glyphs={glyphs} />
 			<SessionList
@@ -90,9 +117,12 @@ export function Sidebar({state, columns, rows}: Props) {
 				height={listHeight}
 				glyphs={glyphs}
 				filtered={filterActive(state)}
+				lang={lang}
 			/>
-			{state.dialog ? <DialogView dialog={state.dialog} projects={state.projects} width={inner} lang={lang} /> : null}
-			{state.notice ? <Text color={COLORS.text}>{padEnd(messageText(lang, state.notice), inner)}</Text> : null}
+			{conflicts.length > 0 ? <Lines lines={conflicts} width={inner} /> : null}
+			{lines ? <Lines lines={lines} width={inner} /> : null}
+			{state.dialog && !lines ? <DialogView dialog={state.dialog} projects={state.projects} width={inner} lang={lang} /> : null}
+			{notice.length > 0 ? <Lines lines={notice} width={inner} /> : null}
 			<Text> </Text>
 			<KeyHints lines={hints} width={inner} />
 		</Box>

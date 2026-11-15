@@ -194,6 +194,15 @@ export async function redrawPlaceholder(ui: Tmux, agents: Tmux, panes: UiPanes, 
 	return (await ui.run(['respawn-pane', '-k', '-t', panes.ai, command])).ok;
 }
 
+// tmux keeps the invoking client waiting until the popup is closed (M6), so
+// this resolves when the user is done reading. If the wait is cut short the
+// popup simply stays up; it never takes the server with it.
+const POPUP_MAX_MS = 60 * 60 * 1000;
+
+export async function showPopup(ui: Tmux, command: string): Promise<boolean> {
+	return (await ui.run(['display-popup', '-E', '-w', '90%', '-h', '90%', command], {timeoutMs: POPUP_MAX_MS})).ok;
+}
+
 export async function clearLabel(ui: Tmux, panes: UiPanes): Promise<void> {
 	await ui.run(['set', '-p', '-t', panes.ai, '@ap-label', '']);
 }

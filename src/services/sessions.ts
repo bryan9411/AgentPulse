@@ -18,6 +18,8 @@ export type SessionMeta = {
 	created: number;
 	// The agent's own conversation id when we chose it (SPEC 5.1); '' otherwise.
 	agentSession: string;
+	// For a worktree, the branch it was cut from and merges back into; '' otherwise.
+	base: string;
 };
 
 export type SessionRecord = SessionMeta & {
@@ -40,6 +42,7 @@ const FIELDS = [
 	'#{@ap-created}',
 	'#{pane_pid}',
 	'#{@ap-agent-session}',
+	'#{@ap-base}',
 ] as const;
 const SEP = '\t';
 
@@ -52,13 +55,14 @@ export function metaOptions(meta: SessionMeta): Array<[string, string]> {
 		['@ap-worktree', meta.worktree ? '1' : '0'],
 		['@ap-created', String(meta.created)],
 		['@ap-agent-session', meta.agentSession],
+		['@ap-base', meta.base],
 	];
 }
 
 // One line of `list-panes -a`. A session created by hand on our socket, or
 // one whose metadata is still being written, has no agent and is skipped.
 export function parseSessionLine(line: string): SessionRecord | null {
-	const [id, dead, status, agent, project, cwd, branch, worktree, created, pid, agentSession] = line.split(SEP);
+	const [id, dead, status, agent, project, cwd, branch, worktree, created, pid, agentSession, base] = line.split(SEP);
 	if (!id?.startsWith(SESSION_PREFIX) || !agent || !project) return null;
 	const isDead = dead === '1';
 	const code = Number.parseInt(status ?? '', 10);
@@ -74,6 +78,7 @@ export function parseSessionLine(line: string): SessionRecord | null {
 		exitStatus: isDead && Number.isFinite(code) ? code : null,
 		pid: Number(pid) || 0,
 		agentSession: agentSession ?? '',
+		base: base ?? '',
 	};
 }
 
@@ -118,6 +123,8 @@ export type CreateOptions = {
 	width: number;
 	height: number;
 	worktree?: boolean;
+	// With `worktree`: the branch to merge back into (SPEC 5.9).
+	base?: string;
 	// Tests run a plain command instead of a real AI.
 	command?: string[];
 };
@@ -144,6 +151,7 @@ export async function createSession(tmux: Tmux, opts: CreateOptions): Promise<Cr
 		worktree: opts.worktree ?? false,
 		created: Math.floor(Date.now() / 1000),
 		agentSession,
+		base: opts.base ?? '',
 	};
 	// Metadata goes in the same tmux invocation as the session so a poll can
 	// never see the session without it. -f only takes effect when this call
@@ -169,6 +177,10 @@ export async function captureScreen(tmux: Tmux, id: string): Promise<string | nu
 export async function closeSession(tmux: Tmux, id: string): Promise<boolean> {
 	if (!id.startsWith(SESSION_PREFIX)) return false;
 	return (await tmux.run(['kill-session', '-t', `=${id}`])).ok;
+}
+
+export async function sessionExists(tmux: Tmux, id: string): Promise<boolean> {
+	return (await tmux.run(['has-session', '-t', `=${id}`])).ok;
 }
 
 // Picks up a newer generated config when the server outlived an update.
