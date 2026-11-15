@@ -1,9 +1,10 @@
 import {join} from 'node:path';
 import {homedir} from 'node:os';
 import {configDir, loadConfig} from '../config/config.ts';
-import {execInteractive} from '../infra/exec.ts';
+import {execInteractive, mergePath} from '../infra/exec.ts';
 import {writeTextAtomic} from '../infra/fsx.ts';
 import {configureLog, logError} from '../infra/log.ts';
+import {platform} from '../infra/platform/index.ts';
 import {createTmux, shellQuote, tmuxBin, tmuxEnv, UI_SOCKET} from '../infra/tmux.ts';
 import {buildUiLayout, uiAlive, UI_SESSION} from '../services/layout.ts';
 import {addProjectFromCwd} from '../services/projects.ts';
@@ -32,6 +33,12 @@ export async function launch(opts: LaunchOptions): Promise<number> {
 	configureLog(join(dir, 'agentpulse.log'));
 	// Read first so the startup checks below speak the user's language.
 	const loaded = loadConfig(dir);
+	// Before anything looks up a program: started without a shell (an iTerm2
+	// profile command, an app bundle) PATH lacks nvm and the like (M7). Both
+	// tmux servers, and every AI, inherit what is set here.
+	const shellPath = await platform.loginShellPath();
+	if (shellPath) process.env.PATH = mergePath(shellPath, process.env.PATH ?? '');
+	else logError('could not read PATH from the login shell; using the inherited one');
 	const problems = findProblems(await probe());
 	if (problems.length > 0) {
 		// Exit non-zero so Terminal keeps a double-clicked window open.

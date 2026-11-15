@@ -137,3 +137,16 @@ export function resolveBin(name: string, fallbackDirs: readonly string[], path =
 	}
 	return null;
 }
+
+// The shell's entries win; anything only in the inherited PATH is kept after them.
+export function mergePath(preferred: string, current: string): string {
+	const seen = new Set<string>();
+	const out: string[] = [];
+	for (const dir of [...preferred.split(':'), ...current.split(':')]) {
+		if (dir && !seen.has(dir)) {
+			seen.add(dir);
+			out.push(dir);
+		}
+	}
+	return out.join(':');
+}

@@ -46,6 +46,22 @@ export function parsePs(text: string): ProcessEntry[] {
 	return out;
 }
 
+const PATH_BEGIN = '__AGENTPULSE_PATH_BEGIN__';
+const PATH_END = '__AGENTPULSE_PATH_END__';
+
+// printenv is an external command, so this reads the exported PATH the same
+// way in zsh, bash and fish.
+export const SHELL_PATH_SCRIPT = `echo ${PATH_BEGIN}; /usr/bin/printenv PATH; echo ${PATH_END}`;
+
+// Shell start-up files may print anything (banners, prompts), hence the markers.
+export function parseShellPath(stdout: string): string | null {
+	const match = new RegExp(`${PATH_BEGIN}\\n([^\\n]*)\\n${PATH_END}`).exec(stdout);
+	const path = match?.[1]?.trim();
+	return path ? path : null;
+}
+
+const SHELL_PATH_TIMEOUT_MS = 3000;
+
 export const darwin: Platform = {
 	id: 'darwin',
 	// Apple Silicon Homebrew, Intel Homebrew, then ~/.local/bin where agy and
@@ -73,5 +89,12 @@ export const darwin: Platform = {
 	},
 	async openUrl(url) {
 		return (await exec(['/usr/bin/open', url], {timeoutMs: 5000})).ok;
+	},
+	async loginShellPath() {
+		const shell = process.env.SHELL || '/bin/zsh';
+		// -i as well as -l: nvm is usually set up in .zshrc, which only interactive shells read.
+		const result = await exec([shell, '-ilc', SHELL_PATH_SCRIPT], {timeoutMs: SHELL_PATH_TIMEOUT_MS});
+		// Some start-up files exit non-zero after printing PATH; the markers decide.
+		return parseShellPath(result.stdout);
 	},
 };

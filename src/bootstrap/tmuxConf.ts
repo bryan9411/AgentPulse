@@ -2,6 +2,12 @@ import {join} from 'node:path';
 import {DEFAULT_LANG, strings, type Lang} from '../i18n/strings.ts';
 import {COLORS} from '../ui/theme.ts';
 
+// tmux asks the outer terminal for extended keys with modifyOtherKeys only.
+// iTerm2 3.4 ignores that and reports Shift+Enter as a bare \r, while it does
+// honour the kitty keyboard protocol that Claude Code uses when run directly
+// (M7). Ask for both: a terminal ignores the request it does not know.
+const EXTENDED_KEYS_OVERRIDE = String.raw`set -as terminal-overrides ',*:Eneks=\E[>4;2m\E[>1u:Dseks=\E[>4m\E[<u'`;
+
 // Shared by both servers: no prefix, no default prefix-table bindings, no
 // escape delay (Esc must reach the AI at once), true colour and extended keys
 // so Shift+Enter survives the nested client (M0 G2).
@@ -16,6 +22,7 @@ set -s extended-keys-format csi-u
 set -g default-terminal "tmux-256color"
 set -as terminal-features ",*:RGB"
 set -as terminal-features ",*:extkeys"
+${EXTENDED_KEYS_OVERRIDE}
 set -g mouse on
 `;
 

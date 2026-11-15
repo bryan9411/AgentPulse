@@ -430,6 +430,7 @@ M0 已確認的實作要點：
 - **焦點偵測：** `window-pane-changed` hook 以訊號（`SIGUSR1`）通知清單程序，另以低頻輪詢 `#{pane_active}` 保底。
 - **環境隔離：** 啟動工作階段 server 時清除 `CLAUDE*` 與 `CLAUDECODE` 環境變數，避免從另一個 Claude Code 內啟動時影響內層 AI。
 - **Ink 設定：** 使用 `alternateScreen: true`，不開 `incrementalRendering`（格子縮放後會留下殘影）。
+- **延伸按鍵的要求（M7 實測）：** tmux 預設只以 modifyOtherKeys（`ESC[>4;2m`）向外層終端機要求延伸按鍵。iTerm2 3.4.16 不支援這種方式，`shift+enter` 會送出和 `enter` 相同的 `\r`；但它支援 Claude Code 直接執行時使用的 kitty 方式，`shift+enter` 送出 `ESC[13;2u`。因此以 `terminal-overrides` 改寫 `Eneks`／`Dseks`，同時送出兩種要求（`ESC[>4;2m ESC[>1u`、`ESC[>4m ESC[<u`），終端機會略過不認得的那一種。
 
 巢狀 tmux 實測可行，原先規劃的 `swap-pane` 備援不採用。
 
@@ -521,6 +522,7 @@ interface Platform {
   listeningPorts(): Promise<Array<{ pid: number; port: number }>>;
   processTree(): Promise<Array<{ pid: number; ppid: number; command: string }>>;
   processCwds(pids: number[]): Promise<Map<number, string>>;   // M4 追加，見 5.5 本機 port
+  loginShellPath(): Promise<string | null>;  // M7 追加：使用者 shell 設定後的 PATH，見第 7 節
 }
 ```
 
@@ -594,6 +596,7 @@ interface Platform {
 - 本機編譯的檔案沒有隔離標記，自用不需要簽章。
 - 雙擊啟動時工作目錄是家目錄，所以專案來源以設定檔的 `projects` 為準。
 - 執行時仍需要系統已安裝 `tmux` 與 `git`，以及至少一家 AI 的 CLI。
+- 補齊 PATH：不經過 shell 直接執行時（例如 iTerm2 設定檔的 Command、之後的 `.app`），PATH 只有系統預設，找不到 nvm、fnm、asdf 這類工具裝的 AI 與 `node`。所以啟動時先以使用者的 shell（`$SHELL`，沒有時用 `/bin/zsh`）執行 `-ilc` 印出 PATH，逾時 3 秒；取得後放在原本 PATH 之前、去除重複，寫回本程序的環境。這一步在啟動檢查與建立 tmux server 之前，兩個 server 與所有 AI 都繼承同一份 PATH。取不到時沿用原本的 PATH 並記錄。輸出前後加上標記字串，忽略 shell 設定檔印出的其他文字。
 - 啟動檢查：先讀設定檔取得語言，再檢查 `tmux`（3.2 以上）、`git` 能否執行、是否在終端機裡。任何一項不過，就以設定的語言列出所有問題與安裝指令後以結束碼 1 離開，雙擊開出的「終端機」視窗會保留這段說明。`git` 以實際執行 `git --version` 判斷：macOS 沒裝開發者工具時 `/usr/bin/git` 仍存在，但只會跳出安裝提示。
 - `?` 按鍵說明：與 `d` 相同的浮動視窗與 `less`，內容由純函式依語言、符號模式與設定的 `keys.back` 產生，寫入設定資料夾的 `help.txt` 後顯示。左欄只有 30 欄，放不下完整說明。
 
@@ -641,6 +644,8 @@ interface Platform {
 | `openUrl` 回傳 `Promise<void>` | 改回傳是否成功 | 失敗時要能在清單下方提示 |
 | （原始需求未涵蓋）同分支多個 AI 無法分辨 | 在 AI 名稱後加 `#2`、`#3` | 使用者 2026-11-15 決定；序號只佔 3 欄，比建立時間省寬度 |
 | `?` 按鍵說明的呈現方式 | 浮動視窗，不畫在左欄 | M7 定義；左欄寬度放不下按鍵與說明 |
+| （原始需求未涵蓋）iTerm2 的 `shift+enter` | tmux 同時以 modifyOtherKeys 與 kitty 方式要求延伸按鍵 | M7 實測 iTerm2 3.4.16 只支援 kitty 方式，見 6.2 |
+| （原始需求未涵蓋）不經過 shell 啟動時的 PATH | 啟動時向使用者的 shell 取得 PATH | M7 實測 iTerm2 直接執行時找不到 nvm 裝的 Claude Code；使用者不必自己設定 |
 | （原始需求未涵蓋）缺少必要程式時的訊息 | 依設定語言列出全部問題與安裝指令；`git` 以能否執行判斷 | M7 定義；雙擊啟動的使用者看不到其他說明 |
 
 ---

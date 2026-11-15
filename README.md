@@ -39,7 +39,9 @@ bun run build:mac
 ## 啟動
 
 - **雙擊：** 把 `dist/AgentPulse` 複製到桌面，雙擊後會開在「終端機」。
-- **在終端機裡：** 進到專案資料夾後執行 `AgentPulse`，這個資料夾會自動加入清單。
+- **在終端機裡：** 進到專案資料夾後執行 `AgentPulse`，這個資料夾會自動加入清單。「終端機」和 iTerm2 都可以。
+
+AI 用 nvm、fnm、asdf 這類工具安裝也沒關係：AgentPulse 啟動時會向你的 shell 問出完整的 PATH，不論從哪裡開都找得到。
 
 第一次啟動清單是空的，按 `a` 輸入專案資料夾路徑（必須是 git 儲存庫），再按 `n` 選一家 AI 啟動。
 
@@ -114,8 +116,11 @@ AI 已經結束。按 `ctrl+q` 回到左邊，按 `x` 關閉它，再按 `n` 開
 **第一次啟動畫面停住、沒有反應。**
 專案放在「文件」「桌面」或「下載項目」資料夾時，macOS 第一次會跳出視窗詢問「終端機」能否存取該資料夾，按「允許」之前程式會停住。
 
+**按 `shift+enter` 沒有換行，直接送出了。**
+「終端機」本身不支援 `shift+enter` 換行，直接執行 Claude Code 也一樣。改按 `ctrl+j` 換行。iTerm2 可以用 `shift+enter`。
+
 **狀態符號對不齊，或看起來佔兩格。**
-在設定檔把 `glyphs` 改成 `"ascii"`。
+在設定檔把 `glyphs` 改成 `"ascii"`。iTerm2 使用者也可以檢查 Settings → Profiles → Text 的「Treat ambiguous-width characters as double width」是否被打開了（預設關閉）。
 
 **畫面寫著「視窗太小」。**
 終端機視窗至少要 70 欄寬、16 行高，拉大視窗即可。
