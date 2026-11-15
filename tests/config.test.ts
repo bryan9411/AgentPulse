@@ -37,7 +37,7 @@ describe('config', () => {
 			sidebarWidth: 5,
 			glyphs: 'ascii',
 			keys: {back: ''},
-			autoCompact: {triggerAt: 90, warnAt: 'x'},
+			contextWarnAt: 'x',
 			contextWindows: {m: 1000, bad: -1},
 			unknown: true,
 		});
@@ -45,9 +45,14 @@ describe('config', () => {
 		expect(c.sidebarWidth).toBe(30);
 		expect(c.glyphs).toBe('ascii');
 		expect(c.keys.back).toBe('C-q');
-		expect(c.autoCompact.triggerAt).toBe(90);
-		expect(c.autoCompact.warnAt).toBe(80);
+		expect(c.contextWarnAt).toBe(80);
 		expect(c.contextWindows).toEqual({m: 1000});
+	});
+
+	test('contextWarnAt keeps valid percentage and rejects out-of-range values', () => {
+		expect(normalizeConfig({contextWarnAt: 75}).contextWarnAt).toBe(75);
+		expect(normalizeConfig({contextWarnAt: 0}).contextWarnAt).toBe(80);
+		expect(normalizeConfig({contextWarnAt: 101}).contextWarnAt).toBe(80);
 	});
 
 	test('withProject does not duplicate', () => {

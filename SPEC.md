@@ -132,7 +132,6 @@
 | `o` | 用預設瀏覽器開啟偵測到的 `http://localhost:<port>` |
 | `/` | 輸入關鍵字篩選清單 |
 | `f` | 切換「只看需要處理的」（`◐` 與 `✕`） |
-| `c` | 切換選中工作階段的 Auto-Compact |
 | `a` | 新增專案（輸入資料夾路徑） |
 | `?` | 按鍵說明 |
 | `q` | 離開 AgentPulse。所有 AI 繼續在背景執行 |
@@ -223,17 +222,11 @@
 - **增刪行數：** `git diff HEAD --shortstat`，另計未追蹤檔案數。
 - **本機 port：** `lsof` 列出監聽中的 TCP port，比對是否屬於該工作階段的程序樹；並輔以畫面上出現的 `localhost:<port>`。
 
-### 5.6 Context 與 Auto-Compact
+### 5.6 Context 用量顯示
 
 - 顯示已用百分比，以及「系統／MCP」「對話」「剩餘」三段明細。
 - **明細是估算：** 各家記錄檔只有總量。以該工作階段第一輪的輸入 token 數當作「系統／MCP」基底，其餘算作「對話」。畫面以 `≈` 標示。
-- 已用達 80% 時，百分比改以警示色顯示。
-- **Auto-Compact** 預設關閉，逐工作階段以 `c` 開關。開啟後，同時滿足以下條件才送出該 AI 的壓縮指令：
-  - 已用達 85%
-  - 狀態為 `idle`
-  - AI 的輸入框是空的
-  - 距上次自動壓縮超過 10 分鐘
-- 壓縮指令由 adapter 提供（Claude Code、Codex 為 `/compact`，Gemini 為 `/compress`）。Aider 沒有對應指令，不支援。
+- 已用達 80% 時，百分比改以警示色顯示（門檻可在設定檔 `contextWarnAt` 調整）。
 - 模型的 context 視窗大小由 adapter 內建對照表提供，可在設定檔覆寫；查不到就不顯示百分比。
 
 ### 5.7 帳號狀態
@@ -383,7 +376,7 @@ src/
     sessions.ts      工作階段生命週期
     layout.ts        AI 格切換、放大、多宮格
     status/          狀態分類、卡頓、通知觸發
-    context/         用量、Auto-Compact
+    context/         用量估算與視窗對照
     accounts.ts  worktree.ts  conflictRadar.ts  ports.ts  tokens.ts
   agents/            每家 AI 一個 adapter
     types.ts  claude.ts  codex.ts  gemini.ts  aider.ts
@@ -411,12 +404,10 @@ interface AgentAdapter {
   id: AgentId;
   displayName: string;
   rulesFile: string | null;               // CLAUDE.md / AGENTS.md / GEMINI.md
-  compactCommand: string | null;          // '/compact' | '/compress' | null
 
   launchCommand(opts: { cwd: string }): string[];
   matchProcess(commandLine: string): boolean;        // 辨識外部工作階段
   classify(screen: string): Exclude<AgentState, 'done'> | null;
-  isInputEmpty(screen: string): boolean;             // Auto-Compact 前確認
   isSuspended(screen: string): boolean;              // 畫面停在暫停訊息，見 5.3
 
   accountStatus(): Promise<'signed-in' | 'not-set'>;
@@ -471,12 +462,7 @@ interface Platform {
   "notifications": true,
   "glyphs": "unicode",
   "keys": { "back": "C-q" },
-  "autoCompact": {
-    "enabledByDefault": false,
-    "warnAt": 80,
-    "triggerAt": 85,
-    "cooldownMinutes": 10
-  },
+  "contextWarnAt": 80,
   "contextWindows": {}
 }
 ```
@@ -542,6 +528,7 @@ interface Platform {
 | （原始需求未涵蓋）專案群組的展開收合 | `←` `→`、`h` `l`；群組列上按 `enter` 也可切換 | M1 實作時補上，沿用常見的樹狀清單慣例 |
 | （原始需求未涵蓋）視窗過小 | 小於 70 × 16 時清單改顯示提示 | M0 發現 80 × 24 可用但擁擠；再小時左欄 30 欄會擠壓 AI 格 |
 | （原始需求未涵蓋）在 AI 格按 `ctrl+z` | 不攔截按鍵；偵測到暫停畫面後自動送 `SIGCONT` 恢復 | 嵌入後外層沒有 shell，無法用 `fg` 叫回，畫面會卡住 |
+| 自動壓縮（Auto-Compact）與 `c` 鍵 | 移除，只保留 Context 用量顯示與警示色 | 使用者決定；避免主動對 AI 送字，且各家已有原生 `/compact`、`/clear` 或 skill |
 
 ---
 

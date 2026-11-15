@@ -10,12 +10,7 @@ export type Config = {
 	notifications: boolean;
 	glyphs: GlyphMode;
 	keys: {back: string};
-	autoCompact: {
-		enabledByDefault: boolean;
-		warnAt: number;
-		triggerAt: number;
-		cooldownMinutes: number;
-	};
+	contextWarnAt: number;
 	contextWindows: Record<string, number>;
 };
 
@@ -25,7 +20,7 @@ export const DEFAULT_CONFIG: Config = {
 	notifications: true,
 	glyphs: 'unicode',
 	keys: {back: 'C-q'},
-	autoCompact: {enabledByDefault: false, warnAt: 80, triggerAt: 85, cooldownMinutes: 10},
+	contextWarnAt: 80,
 	contextWindows: {},
 };
 
@@ -54,7 +49,6 @@ export function normalizeConfig(raw: unknown): Config {
 		? [...new Set(raw.projects.filter((p): p is string => typeof p === 'string' && p.startsWith('/')))]
 		: [];
 	const keys = isRecord(raw.keys) ? raw.keys : {};
-	const ac = isRecord(raw.autoCompact) ? raw.autoCompact : {};
 	const windows: Record<string, number> = {};
 	if (isRecord(raw.contextWindows)) {
 		for (const [model, size] of Object.entries(raw.contextWindows)) {
@@ -67,12 +61,7 @@ export function normalizeConfig(raw: unknown): Config {
 		notifications: bool(raw.notifications, d.notifications),
 		glyphs: raw.glyphs === 'ascii' ? 'ascii' : 'unicode',
 		keys: {back: typeof keys.back === 'string' && keys.back.trim() ? keys.back.trim() : d.keys.back},
-		autoCompact: {
-			enabledByDefault: bool(ac.enabledByDefault, d.autoCompact.enabledByDefault),
-			warnAt: num(ac.warnAt, d.autoCompact.warnAt, 1, 100),
-			triggerAt: num(ac.triggerAt, d.autoCompact.triggerAt, 1, 100),
-			cooldownMinutes: num(ac.cooldownMinutes, d.autoCompact.cooldownMinutes, 0, 1440),
-		},
+		contextWarnAt: Math.round(num(raw.contextWarnAt, d.contextWarnAt, 1, 100)),
 		contextWindows: windows,
 	};
 }

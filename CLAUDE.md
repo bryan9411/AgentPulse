@@ -41,11 +41,10 @@ bun build ./src/index.tsx --compile --outfile dist/AgentPulse
 3. **外部程式一律經過 `src/infra/exec.ts`。** 不在其他地方直接呼叫 `Bun.spawn` 或 `child_process`。
 4. **不碰使用者的 tmux。** 只使用 `agentpulse-ui` 與 `agentpulse` 兩個專屬 socket 與自己產生的設定檔；不讀寫 `~/.tmux.conf`，不對預設 server 下任何會改變狀態的指令。
 5. **只保留一個按鍵。** 焦點在 AI 格時，除了 `ctrl+q` 以外的所有按鍵都必須原樣交給 AI。不得新增第二個全域按鍵。
-6. **不自製 AI 的輸入與指令。** 不做輸入框、不做 `/` 選單、不維護指令庫、不替使用者回答授權提示。
+6. **不自製 AI 的輸入與指令，也不主動送字給 AI。** 不做輸入框、不做 `/` 選單、不維護指令庫、不替使用者回答授權提示，不使用 `send-keys` 代替使用者送出文字。
 7. **不讀取憑證內容。** 帳號狀態只檢查環境變數與檔案「是否存在」；不讀取、不記錄、不顯示金鑰或 token 的值。
 8. **git 破壞性操作必須先確認。** 合併、移除 worktree、刪除分支前顯示將執行的每一步；不使用 `--force`、`-D`、`reset --hard`、`clean`；合併衝突一律 `git merge --abort`，不刪除任何東西。
-9. **Auto-Compact 預設關閉。** 只有在 `SPEC.md` 5.6 的四個條件同時成立時才送出指令。
-10. **未實測就明說。** 沒有在本機實際跑過的行為，在程式註解、`PROGRESS.md` 與回報中都標示「未實測」，不得寫成已完成。
+9. **未實測就明說。** 沒有在本機實際跑過的行為，在程式註解、`PROGRESS.md` 與回報中都標示「未實測」，不得寫成已完成。
 
 ## 架構規則
 
@@ -78,7 +77,6 @@ ui → state → services → agents / infra
 - 固定格子大小掛在 `window-resized` hook，不用 `client-resized`。
 - Ink 以 `alternateScreen: true` 啟動，不開 `incrementalRendering`。
 - 其餘經 M0 實測的做法見 `SPEC.md` 6.2，可參考 `spike/m0/src/index.tsx`。
-- 送字給 AI 只有一個情境：Auto-Compact。使用 `send-keys -l` 送出文字，稍候再送 `Enter`。
 
 ## 程式風格
 
