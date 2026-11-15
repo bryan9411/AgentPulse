@@ -24,3 +24,8 @@ export function diffCommand(cwd: string, labels: DiffLabels, git = gitBin() ?? '
 	].join('\n');
 	return `sh -c ${shellQuote(script)}`;
 }
+
+// The ? popup pages a file written beforehand; -R keeps the coloured marks.
+export function pageFileCommand(file: string, prompt: string): string {
+	return `sh -c ${shellQuote(`LESS= LESSCHARSET=utf-8 less -R -c ${shellQuote(`-P${lessPrompt(prompt)}`)} ${shellQuote(file)}`)}`;
+}

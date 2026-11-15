@@ -191,8 +191,8 @@ describe('state', () => {
 
 	test('key hints switch language and name the other one', () => {
 		expect(listHints({focus: 'ai', dialog: null, row: 'session'}, 'zh-TW')).toEqual(['ctrl+q 回到左邊']);
-		expect(listHints({focus: 'list', dialog: null, row: 'session'}, 'en').at(-1)).toBe('t 中文');
-		expect(listHints({focus: 'list', dialog: null, row: 'session'}, 'zh-TW').at(-1)).toBe('t English');
+		expect(listHints({focus: 'list', dialog: null, row: 'session'}, 'en').at(-1)).toBe('? help · t 中文');
+		expect(listHints({focus: 'list', dialog: null, row: 'session'}, 'zh-TW').at(-1)).toBe('? 說明 · t English');
 	});
 
 	test('language changes only the config field, and notices compare by content', () => {

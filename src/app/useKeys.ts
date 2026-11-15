@@ -83,6 +83,7 @@ export function useKeys(store: Store<AppState>, controller: Controller) {
 		else if (input === 'w') controller.openWorktree();
 		else if (input === 'm') controller.openMerge();
 		else if (input === 'd') void controller.showDiff();
+		else if (input === '?') void controller.showHelp();
 		else if (input === 'o') void controller.openWeb();
 		else if (input === 'a') store.set(A.openAddProject);
 		else if (input === '/') store.set(A.startFilter);

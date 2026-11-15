@@ -1,15 +1,15 @@
 import {join} from 'node:path';
 import {homedir} from 'node:os';
 import {configDir, loadConfig} from '../config/config.ts';
-import {exec, execInteractive} from '../infra/exec.ts';
+import {execInteractive} from '../infra/exec.ts';
 import {writeTextAtomic} from '../infra/fsx.ts';
-import {gitBin} from '../infra/git.ts';
 import {configureLog, logError} from '../infra/log.ts';
-import {createTmux, parseTmuxVersion, shellQuote, tmuxBin, tmuxEnv, UI_SOCKET, versionAtLeast} from '../infra/tmux.ts';
+import {createTmux, shellQuote, tmuxBin, tmuxEnv, UI_SOCKET} from '../infra/tmux.ts';
 import {buildUiLayout, uiAlive, UI_SESSION} from '../services/layout.ts';
 import {addProjectFromCwd} from '../services/projects.ts';
 import {messageText} from '../i18n/strings.ts';
 import {aiPlaceholderCommand} from './aiPane.ts';
+import {findProblems, probe, problemReport} from './preflight.ts';
 import {agentsTmuxConf, confPaths, uiTmuxConf} from './tmuxConf.ts';
 
 export type LaunchOptions = {restartUi: boolean};
@@ -28,17 +28,18 @@ export function selfCommand(role: string): string {
 }
 
 export async function launch(opts: LaunchOptions): Promise<number> {
-	const tmuxPath = tmuxBin();
-	if (!tmuxPath) fail('tmux not found. Install it with: brew install tmux');
-	if (!gitBin()) fail('git not found. Install it with: xcode-select --install');
-	const versionOut = (await exec([tmuxPath, '-V'])).stdout;
-	const version = parseTmuxVersion(versionOut);
-	if (!version || !versionAtLeast(version, 3, 2)) fail(`tmux 3.2 or later is required (found: ${versionOut.trim() || 'unknown'})`);
-	if (!process.stdin.isTTY || !process.stdout.isTTY) fail('must be started from a terminal');
-
 	const dir = configDir();
 	configureLog(join(dir, 'agentpulse.log'));
+	// Read first so the startup checks below speak the user's language.
 	const loaded = loadConfig(dir);
+	const problems = findProblems(await probe());
+	if (problems.length > 0) {
+		// Exit non-zero so Terminal keeps a double-clicked window open.
+		process.stderr.write(problemReport(loaded.config.language, problems));
+		return 1;
+	}
+	const tmuxPath = tmuxBin() ?? 'tmux';
+
 	if (loaded.status === 'invalid') logError(loaded.error);
 	const added = await addProjectFromCwd(process.cwd(), dir);
 	if (added && !added.ok) logError(`auto-add ${process.cwd()}: ${messageText('en', added.error)}`);

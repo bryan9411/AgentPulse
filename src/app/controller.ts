@@ -1,3 +1,4 @@
+import {join} from 'node:path';
 import {getAgent} from '../agents/index.ts';
 import {aiAttachCommand, aiPlaceholderCommand} from '../bootstrap/aiPane.ts';
 import {agentsTmuxConf, confPaths} from '../bootstrap/tmuxConf.ts';
@@ -25,6 +26,7 @@ import {
 } from '../state/selectors.ts';
 import type {Store} from '../state/store.ts';
 import type {AppState, MergeDialog, SessionSummary, WorktreeDialog} from '../state/types.ts';
+import {helpLines} from '../ui/helpLines.ts';
 import {GLYPHS} from '../ui/theme.ts';
 import {
 	clearLabel,
@@ -44,7 +46,7 @@ import {
 } from '../services/layout.ts';
 import {readAccounts} from '../services/accounts.ts';
 import {scanProject, type Conflict} from '../services/conflictRadar.ts';
-import {diffCommand} from '../services/diff.ts';
+import {diffCommand, pageFileCommand} from '../services/diff.ts';
 import {contextView, contextWindow} from '../services/context/usage.ts';
 import {gitDue, readFacts} from '../services/details.ts';
 import {sessionPorts} from '../services/ports.ts';
@@ -70,6 +72,7 @@ export type Controller = {
 	openWorktree(): void;
 	openMerge(): void;
 	showDiff(): Promise<void>;
+	showHelp(): Promise<void>;
 	openWeb(): Promise<void>;
 	focusAi(): Promise<void>;
 	zoomAi(): Promise<void>;
@@ -632,6 +635,32 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		reportError,
 	);
 
+	const showHelp = exclusive(
+		'help',
+		async () => {
+			const state = store.get();
+			const lang = state.config.language;
+			const file = join(configDir, 'help.txt');
+			const lines = helpLines({
+				lang,
+				glyphs: GLYPHS[state.config.glyphs],
+				backKey: state.config.keys.back,
+				configPath: configFile(configDir),
+				logPath: join(configDir, 'agentpulse.log'),
+				color: true,
+			});
+			writeTextAtomic(file, `${lines.join('\n')}\n`);
+			popupOpen = true;
+			try {
+				if (!(await showPopup(ui, pageFileCommand(file, strings(lang).help.prompt)))) logError('help: the popup did not end cleanly');
+			} finally {
+				popupOpen = false;
+				paintChrome(true);
+			}
+		},
+		reportError,
+	);
+
 	return {
 		async submitDialog() {
 			const dialog = store.get().dialog;
@@ -705,6 +734,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 				.then(check => store.set(s => A.setMergeCheck(s, session.id, check)));
 		},
 		showDiff,
+		showHelp,
 		async openWeb() {
 			const state = store.get();
 			const session = selectedSession(state);
