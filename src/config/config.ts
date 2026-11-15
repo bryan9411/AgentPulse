@@ -1,6 +1,7 @@
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 import {readText, writeTextAtomic} from '../infra/fsx.ts';
+import {DEFAULT_LANG, isLang, type Lang} from '../i18n/strings.ts';
 
 export type GlyphMode = 'unicode' | 'ascii';
 
@@ -12,6 +13,7 @@ export type Config = {
 	keys: {back: string};
 	contextWarnAt: number;
 	contextWindows: Record<string, number>;
+	language: Lang;
 };
 
 export const DEFAULT_CONFIG: Config = {
@@ -22,6 +24,7 @@ export const DEFAULT_CONFIG: Config = {
 	keys: {back: 'C-q'},
 	contextWarnAt: 80,
 	contextWindows: {},
+	language: DEFAULT_LANG,
 };
 
 export function configDir(home = homedir()): string {
@@ -63,6 +66,7 @@ export function normalizeConfig(raw: unknown): Config {
 		keys: {back: typeof keys.back === 'string' && keys.back.trim() ? keys.back.trim() : d.keys.back},
 		contextWarnAt: Math.round(num(raw.contextWarnAt, d.contextWarnAt, 1, 100)),
 		contextWindows: windows,
+		language: isLang(raw.language) ? raw.language : d.language,
 	};
 }
 

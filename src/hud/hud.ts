@@ -1,6 +1,7 @@
 import type {AgentState} from '../agents/types.ts';
 import type {ContextView} from '../services/context/usage.ts';
 import {HUD_ROWS} from '../config/layout.ts';
+import {DEFAULT_LANG, strings, type Lang} from '../i18n/strings.ts';
 import {COLORS, GLYPHS, stateGlyph, type Glyphs} from '../ui/theme.ts';
 import {padEnd, truncateStart, width as cells} from '../ui/text.ts';
 import {fitSegments, SEPARATOR, type Segment} from './fit.ts';
@@ -42,28 +43,22 @@ export type HudInput = {
 	now?: number;
 	// Percent at which the context figure turns the warning colour.
 	contextWarnAt?: number;
-};
-
-export const STATE_LABELS: Record<AgentState, string> = {
-	running: 'running',
-	'needs-approval': 'needs approval',
-	idle: 'idle',
-	done: 'done',
-	error: 'error',
+	lang?: Lang;
 };
 
 type Part = {text: string; color: string};
 
 // Right end of line 1 (SPEC 5.5). Only the glyph and warnings are coloured.
-function statusParts(se: HudSession, glyphs: Glyphs): Part[] {
-	if (se.dead) return [{text: `exited (${se.exitStatus ?? '?'})`, color: se.exitStatus === 0 ? COLORS.dim : COLORS.error}];
+function statusParts(se: HudSession, glyphs: Glyphs, lang: Lang): Part[] {
+	const t = strings(lang);
+	if (se.dead) return [{text: t.hud.exited(String(se.exitStatus ?? '?')), color: se.exitStatus === 0 ? COLORS.dim : COLORS.error}];
 	if (!se.state) return [];
 	const glyph = stateGlyph(se.state, glyphs);
 	const parts: Part[] = [
 		{text: glyph.glyph, color: glyph.color},
-		{text: ` ${STATE_LABELS[se.state]}`, color: COLORS.dim},
+		{text: ` ${t.state[se.state]}`, color: COLORS.dim},
 	];
-	if (se.stalled) parts.push({text: ' · stalled?', color: COLORS.warn});
+	if (se.stalled) parts.push({text: ` · ${t.hud.stalled}`, color: COLORS.warn});
 	return parts;
 }
 
@@ -78,21 +73,23 @@ const NO_BOLD = '\x1b[22m';
 const UNKNOWN = '—';
 
 // Compact age: 45s, 12m, 3h05m, 2d4h.
-export function formatDuration(ms: number): string {
+export function formatDuration(ms: number, lang: Lang = DEFAULT_LANG): string {
+	const u = strings(lang).hud.units;
 	const sec = Math.max(0, Math.floor(ms / 1000));
-	if (sec < 60) return `${sec}s`;
+	if (sec < 60) return `${sec}${u.s}`;
 	const min = Math.floor(sec / 60);
-	if (min < 60) return `${min}m`;
+	if (min < 60) return `${min}${u.m}`;
 	const hours = Math.floor(min / 60);
-	if (hours < 24) return `${hours}h${String(min % 60).padStart(2, '0')}m`;
-	return `${Math.floor(hours / 24)}d${hours % 24}h`;
+	if (hours < 24) return `${hours}${u.h}${String(min % 60).padStart(2, '0')}${u.m}`;
+	return `${Math.floor(hours / 24)}${u.d}${hours % 24}${u.h}`;
 }
 
-export function environmentSegments(d: HudDetails | undefined, glyphs: Glyphs): Segment[] {
-	const model = !d?.model ? `model ${UNKNOWN}` : d.effort ? `${d.model} [${d.effort}]` : d.model;
-	const mcp = !d || d.mcp === null ? `MCP ${UNKNOWN}` : d.mcp.length === 0 ? 'MCP none' : `MCP ${d.mcp.join(', ')}`;
-	const skills = `skills ${d?.skills ?? UNKNOWN}`;
-	const rules = !d?.rules ? '' : d.rules.present ? `${d.rules.name} ${glyphs.done}` : `no ${d.rules.name}`;
+export function environmentSegments(d: HudDetails | undefined, glyphs: Glyphs, lang: Lang = DEFAULT_LANG): Segment[] {
+	const t = strings(lang).hud;
+	const model = !d?.model ? `${t.model} ${UNKNOWN}` : d.effort ? `${d.model} [${d.effort}]` : d.model;
+	const mcp = !d || d.mcp === null ? `MCP ${UNKNOWN}` : d.mcp.length === 0 ? t.mcpNone : `MCP ${d.mcp.join(', ')}`;
+	const skills = `${t.skills} ${d?.skills ?? UNKNOWN}`;
+	const rules = !d?.rules ? '' : d.rules.present ? `${d.rules.name} ${glyphs.done}` : t.noRules(d.rules.name);
 	return [
 		{text: model, rank: 1, color: d?.model ? COLORS.text : COLORS.dim, minWidth: 8},
 		{text: mcp, rank: 2, color: COLORS.dim, minWidth: 8},
@@ -101,15 +98,17 @@ export function environmentSegments(d: HudDetails | undefined, glyphs: Glyphs): 
 	];
 }
 
-export function progressSegments(se: HudSession, now: number): Segment[] {
+export function progressSegments(se: HudSession, now: number, lang: Lang = DEFAULT_LANG): Segment[] {
+	const t = strings(lang).hud;
+	const age = (ms: number) => formatDuration(ms, lang);
 	const d = se.details;
 	const git = d?.git ?? null;
 	const branch = git?.branch ?? se.branch;
 	let diff = UNKNOWN;
-	if (git) diff = git.added === 0 && git.removed === 0 && git.untracked === 0 ? 'clean' : `+${git.added} -${git.removed}`;
-	const untracked = git && git.untracked > 0 ? `${git.untracked} untracked` : '';
-	const up = d?.createdAt ? `up ${formatDuration(now - d.createdAt)}` : '';
-	const output = d?.changedAt && !se.dead ? `output ${formatDuration(now - d.changedAt)} ago` : '';
+	if (git) diff = git.added === 0 && git.removed === 0 && git.untracked === 0 ? t.clean : `+${git.added} -${git.removed}`;
+	const untracked = git && git.untracked > 0 ? t.untracked(git.untracked) : '';
+	const up = d?.createdAt ? t.up(age(now - d.createdAt)) : '';
+	const output = d?.changedAt && !se.dead ? t.output(age(now - d.changedAt)) : '';
 	const ports = (d?.ports ?? []).map(p => `:${p}`).join(' ');
 	return [
 		{text: branch, rank: 1, color: COLORS.text, minWidth: 6},
@@ -135,9 +134,10 @@ const BAR_MAX = 30;
 
 // Line 4 (SPEC 5.6), exactly `size` cells. When space runs out the bar
 // shrinks first, then the breakdown goes, then only the headline is left.
-export function contextLine(view: ContextView | null, size: number, glyphs: Glyphs, warnAt = 80): string {
+export function contextLine(view: ContextView | null, size: number, glyphs: Glyphs, warnAt = 80, lang: Lang = DEFAULT_LANG): string {
 	if (size <= 0) return '';
-	const label = 'context ';
+	const t = strings(lang).hud;
+	const label = `${t.context} `;
 	const figure = !view ? UNKNOWN : view.percent !== null ? `${view.percent}%` : formatTokens(view.used);
 	const head = label + figure;
 	const headWidth = cells(head);
@@ -149,10 +149,10 @@ export function contextLine(view: ContextView | null, size: number, glyphs: Glyp
 	if (view && view.system !== null && view.chat !== null) {
 		detail =
 			view.percent !== null
-				? `≈ system ${view.system} · chat ${view.chat} · free ${view.free ?? 0}`
-				: `≈ system ${formatTokens(view.system)} · chat ${formatTokens(view.chat)}`;
+				? `≈ ${t.system} ${view.system} · ${t.chat} ${view.chat} · ${t.free} ${view.free ?? 0}`
+				: `≈ ${t.system} ${formatTokens(view.system)} · ${t.chat} ${formatTokens(view.chat)}`;
 	} else if (view?.free != null) {
-		detail = `free ${view.free}`;
+		detail = `${t.free} ${view.free}`;
 	}
 	const detailWidth = cells(detail);
 	const hasBar = view?.percent != null;
@@ -196,6 +196,8 @@ export function renderSegments(segments: readonly Segment[], size: number): stri
 // so a repaint fully overwrites the previous one.
 export function hudLines(input: HudInput, size: number): string[] {
 	const inner = Math.max(0, size - 1);
+	const lang = input.lang ?? DEFAULT_LANG;
+	const t = strings(lang).hud;
 	const blank = ' '.repeat(Math.max(0, size));
 	const lines: string[] = [];
 	if (input.tooSmall || inner === 0) {
@@ -203,7 +205,7 @@ export function hudLines(input: HudInput, size: number): string[] {
 	} else if (input.session && input.project) {
 		const se = input.session;
 		const left = `${se.branch} · ${input.project.name} · ${se.agent}`;
-		const parts = statusParts(se, input.glyphs ?? GLYPHS.unicode);
+		const parts = statusParts(se, input.glyphs ?? GLYPHS.unicode, lang);
 		const rightWidth = cells(parts.map(p => p.text).join(''));
 		// The status is dropped whole rather than cut when the pane is narrow.
 		const shown = rightWidth > 0 && inner > rightWidth;
@@ -211,18 +213,18 @@ export function hudLines(input: HudInput, size: number): string[] {
 		const right = shown ? ` ${parts.map(p => `${fg(p.color)}${p.text}`).join('')}` : '';
 		lines.push(` ${fg(COLORS.text)}${padEnd(left, leftWidth)}${right}${RESET}`);
 		const glyphs = input.glyphs ?? GLYPHS.unicode;
-		lines.push(` ${renderSegments(environmentSegments(se.details, glyphs), inner)}${RESET}`);
-		lines.push(` ${renderSegments(progressSegments(se, input.now ?? Date.now()), inner)}${RESET}`);
-		lines.push(` ${contextLine(se.details?.context ?? null, inner, glyphs, input.contextWarnAt)}${RESET}`);
+		lines.push(` ${renderSegments(environmentSegments(se.details, glyphs, lang), inner)}${RESET}`);
+		lines.push(` ${renderSegments(progressSegments(se, input.now ?? Date.now(), lang), inner)}${RESET}`);
+		lines.push(` ${contextLine(se.details?.context ?? null, inner, glyphs, input.contextWarnAt, lang)}${RESET}`);
 	} else if (!input.project) {
-		lines.push(` ${fg(COLORS.dim)}${padEnd('No project selected', inner)}${RESET}`);
+		lines.push(` ${fg(COLORS.dim)}${padEnd(t.noProject, inner)}${RESET}`);
 	} else {
 		const name = input.project.name;
 		const nameCut = padEnd(name, inner).trimEnd();
 		const rest = Math.max(0, inner - cells(nameCut));
 		const pathText = rest > 3 ? ` · ${truncateStart(input.project.path, rest - 3)}` : '';
 		lines.push(` ${fg(COLORS.text)}${BOLD}${nameCut}${NO_BOLD}${fg(COLORS.dim)}${padEnd(pathText, rest)}${RESET}`);
-		lines.push(` ${fg(COLORS.dim)}${padEnd('No session yet', inner)}${RESET}`);
+		lines.push(` ${fg(COLORS.dim)}${padEnd(t.noSession, inner)}${RESET}`);
 	}
 	while (lines.length < HUD_ROWS) lines.push(blank);
 	return lines.slice(0, HUD_ROWS);
@@ -241,6 +243,7 @@ export type TopBarInput = {
 	glyphs?: Glyphs;
 	// SPEC 5.7, right-aligned; null while not checked yet.
 	accounts?: readonly AccountMark[];
+	lang?: Lang;
 };
 
 // Only states worth a glance; idle is the rest.
@@ -248,15 +251,15 @@ const TOP_BAR_STATES: readonly AgentState[] = ['needs-approval', 'error', 'runni
 
 // tmux status format (SPEC 3, 6.2). Glyph and count take the state colour.
 export function topBarFormat(input: TopBarInput): string {
-	const noun = input.sessions === 1 ? 'session' : 'sessions';
+	const t = strings(input.lang ?? DEFAULT_LANG);
 	const glyphs = input.glyphs ?? GLYPHS.unicode;
-	const parts = [`${input.sessions} ${noun}`];
+	const parts = [t.topBar.sessions(input.sessions)];
 	for (const state of TOP_BAR_STATES) {
 		const n = input.counts?.[state] ?? 0;
 		if (n === 0) continue;
 		const {glyph, color} = stateGlyph(state, glyphs);
 		const tint = color === COLORS.text ? COLORS.dim : color;
-		parts.push(`#[fg=${tint}]${glyph} ${n}#[fg=${COLORS.dim}] ${STATE_LABELS[state]}`);
+		parts.push(`#[fg=${tint}]${glyph} ${n}#[fg=${COLORS.dim}] ${t.state[state]}`);
 	}
 	const left = ` #[fg=${COLORS.text},bold]AgentPulse#[nobold,fg=${COLORS.dim}]  ${parts.join(' · ')}`;
 	const marks = (input.accounts ?? [])

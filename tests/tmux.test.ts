@@ -43,6 +43,8 @@ describe('tmux helpers', () => {
 		expect(ag).toContain('set -g remain-on-exit on');
 		expect(ag).toContain('set -g history-limit 50000');
 		expect(ag).toContain('set -g status off');
+		expect(ag).toContain('AI exited (status #{pane_dead_status})');
+		expect(agentsTmuxConf('zh-TW')).toContain('AI 已結束（結束碼 #{pane_dead_status}）· 按 ctrl+q 回到左邊，再按 x 關閉');
 	});
 });
 

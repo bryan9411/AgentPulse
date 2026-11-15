@@ -55,6 +55,13 @@ describe('config', () => {
 		expect(normalizeConfig({contextWarnAt: 101}).contextWarnAt).toBe(80);
 	});
 
+	test('language accepts en and zh-TW only', () => {
+		expect(DEFAULT_CONFIG.language).toBe('en');
+		expect(normalizeConfig({language: 'zh-TW'}).language).toBe('zh-TW');
+		expect(normalizeConfig({language: 'zh'}).language).toBe('en');
+		expect(normalizeConfig({}).language).toBe('en');
+	});
+
 	test('withProject does not duplicate', () => {
 		const once = withProject(DEFAULT_CONFIG, '/x');
 		expect(withProject(once, '/x')).toBe(once);

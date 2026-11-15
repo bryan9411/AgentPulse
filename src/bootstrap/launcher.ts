@@ -8,6 +8,7 @@ import {configureLog, logError} from '../infra/log.ts';
 import {createTmux, parseTmuxVersion, shellQuote, tmuxBin, tmuxEnv, UI_SOCKET, versionAtLeast} from '../infra/tmux.ts';
 import {buildUiLayout, uiAlive, UI_SESSION} from '../services/layout.ts';
 import {addProjectFromCwd} from '../services/projects.ts';
+import {messageText} from '../i18n/strings.ts';
 import {aiPlaceholderCommand} from './aiPane.ts';
 import {agentsTmuxConf, confPaths, uiTmuxConf} from './tmuxConf.ts';
 
@@ -40,12 +41,12 @@ export async function launch(opts: LaunchOptions): Promise<number> {
 	const loaded = loadConfig(dir);
 	if (loaded.status === 'invalid') logError(loaded.error);
 	const added = await addProjectFromCwd(process.cwd(), dir);
-	if (added && !added.ok) logError(`auto-add ${process.cwd()}: ${added.error}`);
+	if (added && !added.ok) logError(`auto-add ${process.cwd()}: ${messageText('en', added.error)}`);
 	const config = added?.ok ? added.config : loaded.config;
 
 	const {ui: uiConf, agents: agentsConf} = confPaths(dir);
 	writeTextAtomic(uiConf, uiTmuxConf());
-	writeTextAtomic(agentsConf, agentsTmuxConf());
+	writeTextAtomic(agentsConf, agentsTmuxConf(config.language));
 
 	const ui = createTmux(UI_SOCKET, tmuxPath);
 	if (opts.restartUi || !(await uiAlive(ui))) {
@@ -57,7 +58,7 @@ export async function launch(opts: LaunchOptions): Promise<number> {
 			height: process.stdout.rows || 36,
 			sidebarWidth: config.sidebarWidth,
 			sidebarCommand: selfCommand('sidebar'),
-			aiPlaceholderCommand: aiPlaceholderCommand(),
+			aiPlaceholderCommand: aiPlaceholderCommand(config.language),
 			backKey: config.keys.back,
 			cwd: homedir(),
 		});

@@ -4,6 +4,7 @@ import {ALERT_STATES, type SessionStatus} from '../services/status/machine.ts';
 import {isViewing, projectKey, selectedIndex, selectedRow, sessionKey, visibleRows} from './selectors.ts';
 import type {AccountMark} from '../services/accounts.ts';
 import type {SessionDetails} from '../services/details.ts';
+import type {Lang, Message} from '../i18n/strings.ts';
 import type {AgentOption, AppState, Project, SessionSummary} from './types.ts';
 
 export function initialState(config: Config = DEFAULT_CONFIG): AppState {
@@ -155,7 +156,7 @@ export function setDialogBusy(state: AppState, busy: boolean): AppState {
 	return state.dialog ? {...state, dialog: {...state.dialog, busy}} : state;
 }
 
-export function setDialogError(state: AppState, error: string): AppState {
+export function setDialogError(state: AppState, error: Message): AppState {
 	return state.dialog ? {...state, dialog: {...state.dialog, error, busy: false}} : state;
 }
 
@@ -174,8 +175,13 @@ export function setFocus(state: AppState, focus: AppState['focus'], zoomed: bool
 	return {...state, focus, zoomed};
 }
 
-export function setNotice(state: AppState, notice: string | null): AppState {
-	return state.notice === notice ? state : {...state, notice};
+export function setNotice(state: AppState, notice: Message | null): AppState {
+	const same = state.notice === notice || (state.notice !== null && notice !== null && state.notice.key === notice.key && state.notice.arg === notice.arg);
+	return same ? state : {...state, notice};
+}
+
+export function setLanguage(state: AppState, language: Lang): AppState {
+	return state.config.language === language ? state : {...state, config: {...state.config, language}};
 }
 
 function sameStatus(a: SessionStatus | undefined, b: SessionStatus): boolean {

@@ -1,5 +1,6 @@
 import React from 'react';
 import {Box, Text} from 'ink';
+import {DEFAULT_LANG, strings, type Lang} from '../i18n/strings.ts';
 import type {Dialog} from '../state/types.ts';
 import {COLORS} from './theme.ts';
 import {padEnd} from './text.ts';
@@ -28,13 +29,13 @@ export type HintContext = {
 
 // Every list variant has the same number of lines so the list does not
 // jump as the cursor moves between group and session rows.
-export function listHints({focus, dialog, row, editingFilter, filtered}: HintContext): string[] {
-	if (dialog === 'add-project') return ['enter add · esc cancel'];
-	if (dialog === 'new-session') return ['↑↓ choose · enter start', 'esc cancel'];
-	if (dialog === 'close-session') return ['enter close · esc cancel'];
-	if (focus === 'ai') return ['ctrl+q back'];
-	if (editingFilter) return ['type to filter', 'enter done · esc clear'];
-	const filter = filtered ? '/ filter · f · esc clear' : '/ filter · f needs you';
-	if (row === 'session') return ['↑↓ move · enter type', 'z zoom · x close · n new', filter, 'a add project · q quit'];
-	return ['↑↓ move · ←→ fold', 'n new session', filter, 'a add project · q quit'];
+export function listHints({focus, dialog, row, editingFilter, filtered}: HintContext, lang: Lang = DEFAULT_LANG): string[] {
+	const h = strings(lang).hints;
+	if (dialog === 'add-project') return h.addProject;
+	if (dialog === 'new-session') return h.newSession;
+	if (dialog === 'close-session') return h.closeSession;
+	if (focus === 'ai') return h.ai;
+	if (editingFilter) return h.editingFilter;
+	const filter = filtered ? h.filterOn : h.filterOff;
+	return [...(row === 'session' ? h.session : h.project), filter, ...h.tail];
 }

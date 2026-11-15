@@ -1,4 +1,5 @@
 import type {Config} from '../config/config.ts';
+import type {Message} from '../i18n/strings.ts';
 import type {AccountMark} from '../services/accounts.ts';
 import type {SessionDetails} from '../services/details.ts';
 import type {SessionStatus} from '../services/status/machine.ts';
@@ -26,7 +27,7 @@ export type Row =
 
 export type AgentOption = {id: string; name: string; installed: boolean};
 
-type DialogBase = {error: string | null; busy: boolean};
+type DialogBase = {error: Message | null; busy: boolean};
 
 export type AddProjectDialog = DialogBase & {kind: 'add-project'; value: string};
 export type NewSessionDialog = DialogBase & {kind: 'new-session'; project: string; options: AgentOption[]; index: number};
@@ -49,7 +50,7 @@ export type AppState = {
 	zoomed: boolean;
 	window: WindowSize | null;
 	// One line shown above the key hints, e.g. an invalid config file.
-	notice: string | null;
+	notice: Message | null;
 	// SPEC 5.3, keyed by session id; missing until the first capture.
 	statuses: Record<string, SessionStatus>;
 	// Sessions whose glyph blinks: entered needs-approval or error and the

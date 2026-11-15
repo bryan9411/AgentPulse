@@ -89,7 +89,7 @@ describe('state', () => {
 	test('dialog editing clears the error and is frozen while busy', () => {
 		let s = A.openAddProject(A.initialState(config));
 		s = A.editDialog(s, v => v + '~/x');
-		s = A.setDialogError(s, 'Folder not found');
+		s = A.setDialogError(s, {key: 'folderNotFound'});
 		s = A.editDialog(s, v => v + 'y');
 		expect(s.dialog).toMatchObject({value: '~/xy', error: null});
 		s = A.setDialogBusy(s, true);
@@ -158,17 +158,43 @@ describe('state', () => {
 		expect(listHints({focus: 'list', dialog: null, row: 'session'}).join(' ')).toContain('enter type');
 		expect(listHints({focus: 'list', dialog: null, row: 'project'}).join(' ')).toContain('fold');
 		for (const filtered of [false, true]) {
-			expect(listHints({focus: 'list', dialog: null, row: 'session', filtered})).toHaveLength(4);
-			expect(listHints({focus: 'list', dialog: null, row: 'project', filtered})).toHaveLength(4);
+			for (const lang of ['en', 'zh-TW'] as const) {
+				expect(listHints({focus: 'list', dialog: null, row: 'session', filtered}, lang)).toHaveLength(5);
+				expect(listHints({focus: 'list', dialog: null, row: 'project', filtered}, lang)).toHaveLength(5);
+			}
 		}
 		expect(listHints({focus: 'list', dialog: null, row: 'session', editingFilter: true}).join(' ')).toContain('esc clear');
 		expect(listHints({focus: 'list', dialog: 'close-session', row: 'session'})).toEqual(['enter close · esc cancel']);
 		// The sidebar is 30 columns with one column of padding on each side.
-		for (const row of ['session', 'project'] as const) {
-			for (const filtered of [false, true]) {
-				for (const line of listHints({focus: 'list', dialog: null, row, filtered})) expect(width(line)).toBeLessThanOrEqual(28);
+		for (const lang of ['en', 'zh-TW'] as const) {
+			for (const row of ['session', 'project'] as const) {
+				for (const filtered of [false, true]) {
+					for (const editingFilter of [false, true]) {
+						for (const line of listHints({focus: 'list', dialog: null, row, filtered, editingFilter}, lang)) expect(width(line)).toBeLessThanOrEqual(28);
+					}
+				}
 			}
+			for (const dialog of ['add-project', 'new-session', 'close-session'] as const) {
+				for (const line of listHints({focus: 'list', dialog, row: null}, lang)) expect(width(line)).toBeLessThanOrEqual(28);
+			}
+			for (const line of listHints({focus: 'ai', dialog: null, row: null}, lang)) expect(width(line)).toBeLessThanOrEqual(28);
 		}
+	});
+
+	test('key hints switch language and name the other one', () => {
+		expect(listHints({focus: 'ai', dialog: null, row: 'session'}, 'zh-TW')).toEqual(['ctrl+q 回到左邊']);
+		expect(listHints({focus: 'list', dialog: null, row: 'session'}, 'en').at(-1)).toBe('t 中文');
+		expect(listHints({focus: 'list', dialog: null, row: 'session'}, 'zh-TW').at(-1)).toBe('t English');
+	});
+
+	test('language changes only the config field, and notices compare by content', () => {
+		const s = A.initialState(config);
+		const zh = A.setLanguage(s, 'zh-TW');
+		expect(zh.config).toEqual({...s.config, language: 'zh-TW'});
+		expect(A.setLanguage(zh, 'zh-TW')).toBe(zh);
+		const noticed = A.setNotice(s, {key: 'cannotShow'});
+		expect(A.setNotice(noticed, {key: 'cannotShow'})).toBe(noticed);
+		expect(A.setNotice(noticed, {key: 'notInstalled', arg: 'codex'}).notice).toEqual({key: 'notInstalled', arg: 'codex'});
 	});
 });
 

@@ -52,9 +52,9 @@ describe('projectRoot', () => {
 describe('addProject', () => {
 	test('validates input and registers the repository root once', async () => {
 		const dir = join(base, 'config-a');
-		expect(await addProject('  ', dir)).toEqual({ok: false, error: 'Enter a folder path'});
-		expect(await addProject(join(base, 'missing'), dir)).toEqual({ok: false, error: 'Folder not found'});
-		expect(await addProject(plain, dir)).toEqual({ok: false, error: 'Not a git repository'});
+		expect(await addProject('  ', dir)).toEqual({ok: false, error: {key: 'enterPath'}});
+		expect(await addProject(join(base, 'missing'), dir)).toEqual({ok: false, error: {key: 'folderNotFound'}});
+		expect(await addProject(plain, dir)).toEqual({ok: false, error: {key: 'notRepo'}});
 
 		const first = await addProject(join(repo, 'src'), dir);
 		expect(first.ok && first.path).toBe(repo);
@@ -67,7 +67,7 @@ describe('addProject', () => {
 		const dir = join(base, 'config-b');
 		loadConfig(dir);
 		writeFileSync(configFile(dir), 'not json');
-		expect(await addProject(repo, dir)).toEqual({ok: false, error: 'config.json is invalid; fix it first'});
+		expect(await addProject(repo, dir)).toEqual({ok: false, error: {key: 'configInvalidFix'}});
 	});
 
 	test('launching outside a repository adds nothing', async () => {

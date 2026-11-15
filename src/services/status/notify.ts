@@ -1,4 +1,5 @@
 import type {AgentState} from '../../agents/types.ts';
+import {DEFAULT_LANG, strings, type Lang} from '../../i18n/strings.ts';
 
 export const NOTIFY_DEDUPE_MS = 30_000;
 
@@ -29,8 +30,10 @@ export function notificationText(
 	session: {branch: string; agent: string},
 	projectName: string,
 	state: AgentState,
+	lang: Lang = DEFAULT_LANG,
 ): {title: string; body: string} {
-	const what = state === 'error' ? 'stopped with an error' : 'needs your approval';
+	const t = strings(lang).notify;
+	const what = state === 'error' ? t.error : t.approval;
 	return {title: `AgentPulse · ${projectName}`, body: `${session.branch} · ${session.agent} ${what}`};
 }
 

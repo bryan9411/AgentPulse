@@ -3,6 +3,7 @@ import {resolveBin} from '../infra/exec.ts';
 import {currentBranch} from '../infra/git.ts';
 import {platform} from '../infra/platform/index.ts';
 import type {Tmux} from '../infra/tmux.ts';
+import {msg, type Message} from '../i18n/strings.ts';
 
 export const SESSION_PREFIX = 'agentpulse-';
 
@@ -121,16 +122,16 @@ export type CreateOptions = {
 	command?: string[];
 };
 
-export type CreateResult = {ok: true; id: string} | {ok: false; error: string};
+export type CreateResult = {ok: true; id: string} | {ok: false; error: Message};
 
 export async function createSession(tmux: Tmux, opts: CreateOptions): Promise<CreateResult> {
 	const adapter = getAgent(opts.agent);
-	if (!adapter) return {ok: false, error: `Unknown AI: ${opts.agent}`};
+	if (!adapter) return {ok: false, error: msg('unknownAgent', opts.agent)};
 	const agentSession = adapter.pinsSessionId ? crypto.randomUUID() : '';
 	let command = opts.command;
 	if (!command) {
 		const bin = resolveBin(adapter.binary, platform.binDirs);
-		if (!bin) return {ok: false, error: `${adapter.binary} not found on PATH`};
+		if (!bin) return {ok: false, error: msg('binaryMissing', adapter.binary)};
 		const [, ...args] = adapter.launchCommand({cwd: opts.cwd, sessionId: agentSession || null});
 		command = [bin, ...args];
 	}
@@ -155,7 +156,7 @@ export async function createSession(tmux: Tmux, opts: CreateOptions): Promise<Cr
 	];
 	for (const [name, value] of metaOptions(meta)) args.push(';', 'set', '-t', `=${id}:`, name, value);
 	const result = await tmux.run(args);
-	return result.ok ? {ok: true, id} : {ok: false, error: result.message};
+	return result.ok ? {ok: true, id} : {ok: false, error: msg('startFailed', result.message)};
 }
 
 // The visible screen as plain text, for the adapter's classify (SPEC 5.3).

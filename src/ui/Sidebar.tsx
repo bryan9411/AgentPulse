@@ -1,6 +1,7 @@
 import React from 'react';
 import {Box, Text} from 'ink';
 import {MIN_WINDOW} from '../config/layout.ts';
+import {messageText, strings, type Lang} from '../i18n/strings.ts';
 import {filterActive, selectedIndex, visibleRows, windowTooSmall} from '../state/selectors.ts';
 import type {AppState, Dialog, Project} from '../state/types.ts';
 import {AddProjectDialog} from './dialogs/AddProjectDialog.tsx';
@@ -23,18 +24,19 @@ function dialogRows(dialog: Dialog | null): number {
 	return CLOSE_SESSION_DIALOG_ROWS;
 }
 
-function DialogView({dialog, projects, width}: {dialog: Dialog; projects: Project[]; width: number}) {
-	if (dialog.kind === 'add-project') return <AddProjectDialog dialog={dialog} width={width} />;
-	if (dialog.kind === 'close-session') return <CloseSessionDialog dialog={dialog} width={width} />;
+function DialogView({dialog, projects, width, lang}: {dialog: Dialog; projects: Project[]; width: number; lang: Lang}) {
+	if (dialog.kind === 'add-project') return <AddProjectDialog dialog={dialog} width={width} lang={lang} />;
+	if (dialog.kind === 'close-session') return <CloseSessionDialog dialog={dialog} width={width} lang={lang} />;
 	const name = projects.find(p => p.path === dialog.project)?.name ?? dialog.project;
-	return <NewSessionDialog dialog={dialog} projectName={name} width={width} />;
+	return <NewSessionDialog dialog={dialog} projectName={name} width={width} lang={lang} />;
 }
 
 // SPEC 3: the line under the title doubles as the `/` hint and the field.
 function FilterLine({state, width, glyphs}: {state: AppState; width: number; glyphs: Glyphs}) {
 	const {text, editing} = state.filter;
-	const only = state.attentionOnly ? `${glyphs.approval} ${glyphs.error} only` : '';
-	if (!editing && !text && !only) return <Text color={COLORS.dim}>{padEnd('/ filter', width)}</Text>;
+	const t = strings(state.config.language).list;
+	const only = state.attentionOnly ? t.attentionOnly(glyphs.approval, glyphs.error) : '';
+	if (!editing && !text && !only) return <Text color={COLORS.dim}>{padEnd(t.filter, width)}</Text>;
 	const keyword = editing || text ? `/ ${text}` : '';
 	const cursor = editing ? '▏' : '';
 	const tail = only ? `${keyword ? ' · ' : ''}${only}` : '';
@@ -49,14 +51,16 @@ function FilterLine({state, width, glyphs}: {state: AppState; width: number; gly
 
 export function Sidebar({state, columns, rows}: Props) {
 	const inner = Math.max(1, columns - 2);
+	const lang = state.config.language;
+	const t = strings(lang).list;
 
 	if (windowTooSmall(state)) {
 		const w = state.window;
 		return (
 			<Box flexDirection="column" width={columns} height={rows} paddingX={1}>
-				<Text color={COLORS.text}>{padEnd('Window too small', inner)}</Text>
-				<Text color={COLORS.dim}>{padEnd(`Need ${MIN_WINDOW.columns}x${MIN_WINDOW.rows}`, inner)}</Text>
-				<Text color={COLORS.dim}>{padEnd(w ? `Now ${w.columns}x${w.rows}` : '', inner)}</Text>
+				<Text color={COLORS.text}>{padEnd(t.tooSmall, inner)}</Text>
+				<Text color={COLORS.dim}>{padEnd(t.need(`${MIN_WINDOW.columns}x${MIN_WINDOW.rows}`), inner)}</Text>
+				<Text color={COLORS.dim}>{padEnd(w ? t.now(`${w.columns}x${w.rows}`) : '', inner)}</Text>
 			</Box>
 		);
 	}
@@ -70,13 +74,13 @@ export function Sidebar({state, columns, rows}: Props) {
 		row: rowsData[index]?.kind ?? null,
 		editingFilter: state.filter.editing,
 		filtered: filterActive(state),
-	});
+	}, lang);
 	const footerRows = 1 + hints.length + (state.notice ? 1 : 0) + dialogRows(state.dialog);
 	const listHeight = Math.max(1, rows - HEADER_ROWS - footerRows);
 
 	return (
 		<Box flexDirection="column" width={columns} height={rows} paddingX={1}>
-			<Text color={COLORS.dim}>{padEnd('Sessions', inner)}</Text>
+			<Text color={COLORS.dim}>{padEnd(t.title, inner)}</Text>
 			<FilterLine state={state} width={inner} glyphs={glyphs} />
 			<SessionList
 				state={state}
@@ -87,8 +91,8 @@ export function Sidebar({state, columns, rows}: Props) {
 				glyphs={glyphs}
 				filtered={filterActive(state)}
 			/>
-			{state.dialog ? <DialogView dialog={state.dialog} projects={state.projects} width={inner} /> : null}
-			{state.notice ? <Text color={COLORS.text}>{padEnd(state.notice, inner)}</Text> : null}
+			{state.dialog ? <DialogView dialog={state.dialog} projects={state.projects} width={inner} lang={lang} /> : null}
+			{state.notice ? <Text color={COLORS.text}>{padEnd(messageText(lang, state.notice), inner)}</Text> : null}
 			<Text> </Text>
 			<KeyHints lines={hints} width={inner} />
 		</Box>

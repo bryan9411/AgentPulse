@@ -186,6 +186,14 @@ export async function showSession(ui: Tmux, agents: Tmux, panes: UiPanes, opts: 
 	return false;
 }
 
+// The placeholder text is baked into the pane's command, so a language
+// switch needs a respawn. Never touches a pane that embeds an AI.
+export async function redrawPlaceholder(ui: Tmux, agents: Tmux, panes: UiPanes, command: string): Promise<boolean> {
+	const pane = await readAiPane(ui, panes);
+	if (!pane || (await embeddedClientSession(agents, pane.tty))) return false;
+	return (await ui.run(['respawn-pane', '-k', '-t', panes.ai, command])).ok;
+}
+
 export async function clearLabel(ui: Tmux, panes: UiPanes): Promise<void> {
 	await ui.run(['set', '-p', '-t', panes.ai, '@ap-label', '']);
 }

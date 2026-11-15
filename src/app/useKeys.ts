@@ -73,6 +73,7 @@ export function useKeys(store: Store<AppState>, controller: Controller) {
 		else if (input === 'a') store.set(A.openAddProject);
 		else if (input === '/') store.set(A.startFilter);
 		else if (input === 'f') store.set(A.toggleAttentionOnly);
+		else if (input === 't') controller.toggleLanguage();
 		else if (key.escape) store.set(s => (s.attentionOnly ? A.toggleAttentionOnly(A.clearFilter(s)) : A.clearFilter(s)));
 	});
 }

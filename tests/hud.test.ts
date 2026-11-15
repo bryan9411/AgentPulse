@@ -249,4 +249,34 @@ describe('context (SPEC 5.6)', () => {
 		expect(formatTokens(412_000)).toBe('412k');
 		expect(formatTokens(1_000_000)).toBe('1.0m');
 	});
+
+	test('zh-TW: plain Taiwan wording, same widths and drop order', () => {
+		const now = 1_000_000_000;
+		const project = {name: '商店-api', path: '/w/商店-api'};
+		const details: HudDetails = {
+			model: 'claude-opus-5-5', effort: null, mcp: [], skills: 2, rules: {name: 'CLAUDE.md', present: false},
+			git: {branch: 'feat/購物車', added: 0, removed: 0, untracked: 3}, ports: [3000],
+			createdAt: now - (3 * 60 + 5) * 60_000, changedAt: now - 3000,
+			context: contextView({used: 370_000, base: 40_000}, 1_000_000),
+		};
+		const session = {branch: 'feat/購物車', agent: 'claude', cwd: '/w', dead: false, exitStatus: null, state: 'needs-approval' as const, stalled: false, details};
+		const at = (size: number) => plain(hudLines({tooSmall: false, project, session, now, lang: 'zh-TW'}, size));
+		const lines = at(100);
+		expect(lines[0]?.trimEnd()).toMatch(/◐ 等你同意$/);
+		expect(lines[1]?.trimEnd()).toBe(' claude-opus-5-5 · MCP 無 · Skills 2 · 沒有 CLAUDE.md');
+		expect(lines[2]?.trimEnd()).toBe(' feat/購物車 · +0 -0 · 3 個新檔案 · 已開 3時05分 · 3秒前有輸出 · :3000');
+		expect(lines[3]?.trimEnd()).toBe(` 記憶用量 37% ${'━'.repeat(11)}${'─'.repeat(19)}  ≈ 系統 4 · 對話 33 · 剩餘 63`);
+		for (let size = 1; size <= 120; size++) {
+			for (const line of at(size)) expect(width(line)).toBe(size);
+		}
+		const dead = plain(hudLines({tooSmall: false, project, session: {...session, dead: true, exitStatus: 2}, lang: 'zh-TW'}, 60));
+		expect(dead[0]?.trimEnd()).toMatch(/已結束 \(2\)$/);
+		expect(plain(hudLines({tooSmall: false, project: null, lang: 'zh-TW'}, 30))[0]?.trimEnd()).toBe(' 還沒選專案');
+		const clean = {...session, details: {...details, git: {branch: 'main', added: 0, removed: 0, untracked: 0}}};
+		expect(plain(hudLines({tooSmall: false, project, session: clean, now, lang: 'zh-TW'}, 100))[2]?.trimEnd()).toMatch(/^ main · 沒有修改 · /);
+		expect(formatDuration(45_000, 'zh-TW')).toBe('45秒');
+		expect(formatDuration((2 * 24 + 4) * 3_600_000, 'zh-TW')).toBe('2天4時');
+		const bar = topBarFormat({sessions: 3, counts: {running: 1, 'needs-approval': 1, idle: 1, done: 0, error: 0}, lang: 'zh-TW'});
+		expect(bar.replace(/#\[[^\]]*\]/g, '')).toBe(' AgentPulse  3 個 AI · ◐ 1 等你同意 · ● 1 工作中');
+	});
 });

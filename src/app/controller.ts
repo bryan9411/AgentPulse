@@ -1,9 +1,10 @@
 import {getAgent} from '../agents/index.ts';
-import {aiAttachCommand} from '../bootstrap/aiPane.ts';
-import {confPaths} from '../bootstrap/tmuxConf.ts';
-import {configFile, loadConfig} from '../config/config.ts';
+import {aiAttachCommand, aiPlaceholderCommand} from '../bootstrap/aiPane.ts';
+import {agentsTmuxConf, confPaths} from '../bootstrap/tmuxConf.ts';
+import {configFile, loadConfig, saveConfig} from '../config/config.ts';
 import {hudFrame, hudLines, topBarFormat, type HudInput} from '../hud/hud.ts';
-import {hostFs, mtimeMs} from '../infra/fsx.ts';
+import {messageText, msg, nextLang, type Lang} from '../i18n/strings.ts';
+import {hostFs, mtimeMs, writeTextAtomic} from '../infra/fsx.ts';
 import {gitStats} from '../infra/git.ts';
 import {logError} from '../infra/log.ts';
 import {platform} from '../infra/platform/index.ts';
@@ -23,6 +24,7 @@ import {
 	readAiPane,
 	readLayout,
 	readPanes,
+	redrawPlaceholder,
 	setTopBar,
 	showSession,
 	zoomAi,
@@ -44,6 +46,7 @@ export type Controller = {
 	focusAi(): Promise<void>;
 	zoomAi(): Promise<void>;
 	quit(): Promise<void>;
+	toggleLanguage(): void;
 	stop(): void;
 };
 
@@ -77,6 +80,7 @@ function hudInput(state: AppState): HudInput {
 	return {
 		tooSmall: windowTooSmall(state),
 		glyphs: GLYPHS[state.config.glyphs],
+		lang: state.config.language,
 		now,
 		contextWarnAt: state.config.contextWarnAt,
 		project,
@@ -134,6 +138,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 			counts: statusCounts(state),
 			glyphs: GLYPHS[state.config.glyphs],
 			accounts: state.accounts,
+			lang: state.config.language,
 		});
 		if (topBar !== lastTopBar) {
 			lastTopBar = topBar;
@@ -158,16 +163,30 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 	// A tmux hook fired: sizes or focus changed, so repaint even if the text is identical.
 	const forcedLayout = exclusive('layout', () => refreshLayout(true), reportError);
 
+	const refreshPlaceholder = async () => {
+		if (!panes || shown !== null) return;
+		await redrawPlaceholder(ui, agents, panes, aiPlaceholderCommand(store.get().config.language));
+	};
+
+	// The exit line lives in the AI server's config, outside Ink (SPEC 3.3).
+	const applyLanguage = async (lang: Lang) => {
+		writeTextAtomic(agentsConf, agentsTmuxConf(lang));
+		await reloadSessionConf(agents, agentsConf);
+		await refreshPlaceholder();
+	};
+
 	const pollConfig = async () => {
 		const mtime = mtimeMs(configFile(configDir));
 		if (mtime === configMtime) return;
 		configMtime = mtime;
 		const loaded = loadConfig(configDir);
+		const before = store.get().config.language;
 		store.set(s => {
-			const next = A.setNotice(s, loaded.status === 'invalid' ? 'config.json is invalid' : null);
+			const next = A.setNotice(s, loaded.status === 'invalid' ? msg('configInvalid') : null);
 			return loaded.status === 'invalid' ? next : A.setConfig(next, loaded.config);
 		});
 		if (loaded.status === 'invalid') logError(loaded.error);
+		else if (loaded.config.language !== before) await applyLanguage(loaded.config.language);
 	};
 
 	const refreshSessions = async () => {
@@ -250,7 +269,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 			});
 			if (!ok) continue;
 			const project = state.projects.find(p => p.path === session.project)?.name ?? session.project;
-			const {title, body} = notificationText(session, project, status.state);
+			const {title, body} = notificationText(session, project, status.state, state.config.language);
 			void platform.notify(title, body).then(sent => {
 				if (!sent) logError(`notify: osascript failed for ${session.id}`);
 			});
@@ -348,7 +367,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 				const ok = await showSession(ui, agents, panes, {
 					id: session.id,
 					label: session.agent,
-					attachCommand: aiAttachCommand(agents, session.id),
+					attachCommand: aiAttachCommand(agents, session.id, store.get().config.language),
 				});
 				shown = ok ? session.id : null;
 				if (!ok) logError(`show: could not display ${session.id}`);
@@ -419,7 +438,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		if (!panes || !session) return;
 		await syncAi();
 		if (shown !== session.id) {
-			store.set(s => A.setNotice(s, 'Could not show this session'));
+			store.set(s => A.setNotice(s, msg('cannotShow')));
 			return;
 		}
 		store.set(s => A.setNotice(s, null));
@@ -439,7 +458,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 			height: size?.height ?? 36,
 		});
 		if (!result.ok) {
-			logError(`new session: ${result.error}`);
+			logError(`new session: ${messageText('en', result.error)}`);
 			store.set(s => A.setDialogError(s, result.error));
 			return;
 		}
@@ -451,13 +470,15 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 
 	const submitCloseSession = async (id: string) => {
 		if (!(await closeSession(agents, id))) {
-			store.set(s => A.setDialogError(s, 'Could not close the session'));
+			store.set(s => A.setDialogError(s, msg('cannotClose')));
 			return;
 		}
 		if (shown === id) shown = null;
 		await refreshSessions();
 		store.set(A.closeDialog);
 		await syncAi(true);
+		// The fallback placeholder carries the language of when it was attached.
+		if (shown === null) await refreshPlaceholder();
 	};
 
 	return {
@@ -468,7 +489,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 				const option = dialog.options[dialog.index];
 				if (!option) return;
 				if (!option.installed) {
-					store.set(s => A.setDialogError(s, `${option.id} is not installed`));
+					store.set(s => A.setDialogError(s, msg('notInstalled', option.id)));
 					return;
 				}
 			}
@@ -479,7 +500,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 				else await submitCloseSession(dialog.session.id);
 			} catch (error) {
 				logError(`dialog ${dialog.kind}: ${String(error)}`);
-				store.set(s => A.setDialogError(s, 'Something went wrong; see agentpulse.log'));
+				store.set(s => A.setDialogError(s, msg('failed')));
 			}
 		},
 		openNewSession() {
@@ -489,6 +510,21 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		zoomAi: () => giveFocus(true),
 		async quit() {
 			await detachUi(ui);
+		},
+		toggleLanguage() {
+			const lang = nextLang(store.get().config.language);
+			// Re-read so an edit made in another window is not overwritten.
+			const loaded = loadConfig(configDir);
+			if (loaded.status === 'invalid') {
+				store.set(s => A.setNotice(A.setLanguage(s, lang), msg('languageNotSaved')));
+			} else {
+				const config = {...loaded.config, language: lang};
+				saveConfig(configDir, config);
+				configMtime = mtimeMs(configFile(configDir));
+				store.set(s => A.setConfig(s, config));
+			}
+			paintChrome(false);
+			void applyLanguage(lang).catch(error => logError(`language: ${String(error)}`));
 		},
 		stop() {
 			for (const timer of timers) clearInterval(timer);

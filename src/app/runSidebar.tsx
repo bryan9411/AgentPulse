@@ -2,6 +2,7 @@ import React from 'react';
 import {join} from 'node:path';
 import {render} from 'ink';
 import {configDir, loadConfig} from '../config/config.ts';
+import {msg} from '../i18n/strings.ts';
 import {configureLog, logError} from '../infra/log.ts';
 import {AGENT_SOCKET, createTmux, UI_SOCKET} from '../infra/tmux.ts';
 import * as A from '../state/actions.ts';
@@ -16,7 +17,7 @@ export function runSidebar(): void {
 	let state = A.initialState(loaded.config);
 	if (loaded.status === 'invalid') {
 		logError(loaded.error);
-		state = A.setNotice(state, 'config.json is invalid');
+		state = A.setNotice(state, msg('configInvalid'));
 	}
 	const store = createStore(state);
 	const controller = startController({

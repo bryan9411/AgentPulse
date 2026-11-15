@@ -132,6 +132,8 @@ describe('notifications', () => {
 		expect(text.title).toBe('AgentPulse · 商店-api');
 		expect(text.body).toBe('feat/購物車 · claude needs your approval');
 		expect(notificationText({branch: 'main', agent: 'agy'}, 'x', 'error').body).toContain('error');
+		expect(notificationText({branch: 'main', agent: 'agy'}, 'x', 'error', 'zh-TW').body).toBe('main · agy 出錯停下來了');
+		expect(notificationText({branch: 'main', agent: 'agy'}, 'x', 'needs-approval', 'zh-TW').body).toBe('main · agy 在等你同意');
 	});
 
 	test('SIGCONT at most once per session every 3 s', () => {
