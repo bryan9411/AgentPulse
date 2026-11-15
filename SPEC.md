@@ -66,6 +66,8 @@
  ctrl+q back            │
 ```
 
+**視窗過小：** 終端機視窗小於 70 欄 × 16 行時，清單只顯示 `Window too small` 與所需的最小尺寸，資訊列清空；放大視窗後自動恢復。AI 格照常運作。
+
 ### 3.1 配色（單一、不可切換）
 
 | 用途 | 色碼 |
@@ -119,7 +121,8 @@
 | 按鍵 | 行為 |
 |---|---|
 | `↑` `↓` 或 `k` `j` | 移動選取，AI 格立即切換到該工作階段 |
-| `enter` | 把焦點交給 AI 格，開始打字 |
+| `←` `→` 或 `h` `l` | 收合、展開選中的專案群組；選取在工作階段列時，`←` 收合它所屬的群組並把選取移到群組列 |
+| `enter` | 把焦點交給 AI 格，開始打字。選取在專案群組列時改為切換展開／收合 |
 | `z` | 把 AI 格放大到滿版並把焦點交給它；按 `ctrl+q` 還原 |
 | `n` | 在選中的專案開一個新的工作階段（選 AI） |
 | `w` | 為選中的專案建立 worktree 分支並啟動 AI |
@@ -434,6 +437,7 @@ interface AgentAdapter {
 
 ```ts
 interface Platform {
+  binDirs: string[];                       // PATH 找不到程式時依序嘗試的資料夾
   notify(title: string, body: string): Promise<void>;
   openUrl(url: string): Promise<void>;
   listeningPorts(): Promise<Array<{ pid: number; port: number }>>;
@@ -441,7 +445,7 @@ interface Platform {
 }
 ```
 
-第一階段只實作 `darwin.ts`。`wsl.ts` 僅保留介面，呼叫時丟出「尚未支援」。
+第一階段只實作 `darwin.ts`。`wsl.ts` 僅保留介面，呼叫時丟出「尚未支援」。`binDirs` 在 M1 加入：macOS 為 `/opt/homebrew/bin`、`/usr/local/bin`，讓 6.2 啟動流程第 1 步的備援路徑不寫死在平台模組以外。其餘方法隨 M3、M4 實作。
 
 ### 6.6 輪詢排程
 
@@ -535,6 +539,8 @@ interface Platform {
 | PageUp / PageDown 翻歷史 | 由 tmux 原生捲動與滑鼠滾輪處理 | 嵌入後不需自製 |
 | 多宮格、廣播、Token 統計、外部 tmux 掃描 | 保留，排在最後階段 | 自用優先做核心功能 |
 | 滑鼠操作（點選、滾輪、拖曳） | 不列為必要功能，未實測；所有功能必須能只用鍵盤完成 | 使用者決定全程在終端機以鍵盤操作 |
+| （原始需求未涵蓋）專案群組的展開收合 | `←` `→`、`h` `l`；群組列上按 `enter` 也可切換 | M1 實作時補上，沿用常見的樹狀清單慣例 |
+| （原始需求未涵蓋）視窗過小 | 小於 70 × 16 時清單改顯示提示 | M0 發現 80 × 24 可用但擁擠；再小時左欄 30 欄會擠壓 AI 格 |
 | （原始需求未涵蓋）在 AI 格按 `ctrl+z` | 不攔截按鍵；偵測到暫停畫面後自動送 `SIGCONT` 恢復 | 嵌入後外層沒有 shell，無法用 `fg` 叫回，畫面會卡住 |
 
 ---
