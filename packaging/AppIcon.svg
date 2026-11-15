@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- AgentPulse app icon. Colours from SPEC 3.1 / src/ui/theme.ts. -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#1d1e21"/>
+  <circle cx="254.5" cy="326.6" r="41.2" fill="#86b07f"/>
+  <circle cx="254.5" cy="512.0" r="36.1" fill="none" stroke="#d0a24c" stroke-width="12.4"/>
+  <path d="M254.5 475.9 A36.1 36.1 0 0 0 254.5 548.0 Z" fill="#d0a24c"/>
+  <circle cx="254.5" cy="697.4" r="36.1" fill="none" stroke="#73767d" stroke-width="12.4"/>
+  <line x1="357.5" y1="244.2" x2="357.5" y2="779.8" stroke="#33353a" stroke-width="10.3" stroke-linecap="round"/>
+  <polyline points="419.3,522.3 501.7,522.3 548.0,419.3 609.9,645.9 666.5,357.5 718.0,563.5 759.2,522.3 831.3,522.3" fill="none" stroke="#86b07f" stroke-width="25.8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

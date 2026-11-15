@@ -593,6 +593,44 @@ interface Platform {
 ```
 
 - 產物 `dist/AgentPulse` 是內含 Bun 執行環境的單一執行檔，複製到桌面後可雙擊開啟（會開在 Terminal.app）。
+
+### 7.1 安裝成 App（M7 追加）
+
+使用者 clone 專案後執行 `./install.sh` 安裝 `AgentPulse.app`，執行 `./uninstall.sh` 移除。兩個腳本只用 macOS 內建指令，使用者不必先安裝 Bun。
+
+**`install.sh`：**
+
+1. 檢查 `tmux`（3.2 以上）與 `git` 能否執行；缺少時列出安裝指令後停止，不做任何變更。
+2. 準備 Bun：電腦上已有 `bun` 就使用它；沒有時下載官方 1.4.4 版（Apple 晶片用 `bun-darwin-aarch64.zip`，Intel 用 `bun-darwin-x64-baseline.zip`）到暫存資料夾，以寫在腳本裡的 SHA-256 檢查碼核對，不符就停止。
+3. 以暫存資料夾作為 Bun 的下載快取（`BUN_INSTALL_CACHE_DIR`），執行 `bun install --frozen-lockfile` 與 `bun run build:mac`。專案套件只放在專案資料夾的 `node_modules`。
+4. 在暫存資料夾組出 `AgentPulse.app`，再放到 `/Applications`；沒有寫入權限時改放 `~/Applications`。同位置已有 `AgentPulse.app` 時，確認其 `CFBundleIdentifier` 是 `local.agentpulse.app` 才取代，否則停止。
+5. 向 LaunchServices 登記，讓 Spotlight 與 Launchpad 找得到。
+6. AgentPulse 的畫面 server 正在執行時，詢問是否重新整理畫面（只關閉 `agentpulse-ui`，AI 不受影響）；不重新整理的話舊畫面會繼續使用舊版程式。
+7. 結束時刪除暫存資料夾，電腦上不會多出 Bun 或下載快取。
+
+**App 結構：**
+
+| 路徑 | 內容 |
+|---|---|
+| `Contents/Info.plist` | `CFBundleIdentifier` 為 `local.agentpulse.app`；`LSUIElement` 為 true，開完終端機視窗就結束，不留在 Dock |
+| `Contents/MacOS/AgentPulse` | 啟動腳本：找得到 iTerm2（bundle id `com.googlecode.iterm2`）就以 AppleScript 請 iTerm2 開新視窗執行 `AgentPulse.command`，否則以 `open -b com.apple.Terminal` 交給「終端機」 |
+| `Contents/Resources/AgentPulse.command` | 執行 `agentpulse`；結束碼不是 0 時等使用者按 `enter` 才結束，因為 iTerm2 會在程式結束時關閉視窗，使用者會看不到啟動檢查的說明 |
+| `Contents/Resources/agentpulse` | `dist/AgentPulse` 的複本 |
+| `Contents/Resources/AppIcon.icns` | 圖示，見下方 |
+| `Contents/Resources/uninstall.sh` | 與專案根目錄的 `uninstall.sh` 相同，刪掉專案資料夾後仍能移除 |
+
+- iTerm2 以 `open` 打開腳本時，每次都會詢問「OK to run …?」（M7 實測 3.4.16），所以改用 AppleScript；代價是第一次開啟時 macOS 詢問一次「AgentPulse 想要控制 iTerm」。「終端機」以 `open` 打開 `.command` 不會詢問，也不需要「自動化」權限。
+- 已經開著時再開一次，會多開一個視窗接到同一個畫面（使用者 2026-11-16 決定）。
+
+**`uninstall.sh`：** 先列出將執行的每一步與背景中的 AI 數量，輸入 `y` 才執行：
+
+1. 關閉 `agentpulse-ui` 與 `agentpulse` 兩個 tmux server（背景中的 AI 會結束）。
+2. 向 LaunchServices 取消登記，刪除 `/Applications` 與 `~/Applications` 中 `CFBundleIdentifier` 為 `local.agentpulse.app` 的 `AgentPulse.app`。
+3. 刪除 `~/.config/agentpulse/`。
+4. 以 `tccutil reset AppleEvents local.agentpulse.app` 清除 AgentPulse 的「自動化」權限紀錄（只清這個 App 的）。
+5. 再檢查一次上述位置與兩個 tmux socket 都已不存在，印出結果。
+
+**圖示：** 原稿 `packaging/AppIcon.svg`（左側三個狀態符號、細分隔線、右側脈搏線，配色取自 3.1），轉好的 `packaging/AppIcon.icns` 一起進 git，安裝時直接複製，使用者端不轉檔。
 - 本機編譯的檔案沒有隔離標記，自用不需要簽章。
 - 雙擊啟動時工作目錄是家目錄，所以專案來源以設定檔的 `projects` 為準。
 - 執行時仍需要系統已安裝 `tmux` 與 `git`，以及至少一家 AI 的 CLI。
@@ -646,6 +684,8 @@ interface Platform {
 | `?` 按鍵說明的呈現方式 | 浮動視窗，不畫在左欄 | M7 定義；左欄寬度放不下按鍵與說明 |
 | （原始需求未涵蓋）iTerm2 的 `shift+enter` | tmux 同時以 modifyOtherKeys 與 kitty 方式要求延伸按鍵 | M7 實測 iTerm2 3.4.16 只支援 kitty 方式，見 6.2 |
 | （原始需求未涵蓋）不經過 shell 啟動時的 PATH | 啟動時向使用者的 shell 取得 PATH | M7 實測 iTerm2 直接執行時找不到 nvm 裝的 Claude Code；使用者不必自己設定 |
+| 打包產物為單一執行檔 | 另以 `install.sh` 組成 `AgentPulse.app`，雙擊時優先開 iTerm2 | 使用者 2026-11-16 決定；`build:mac` 不變，見 7.1 |
+| （原始需求未涵蓋）移除方式 | `uninstall.sh` 一次清掉 AgentPulse 的所有檔案與背景 server | 使用者要求不留殘留 |
 | （原始需求未涵蓋）缺少必要程式時的訊息 | 依設定語言列出全部問題與安裝指令；`git` 以能否執行判斷 | M7 定義；雙擊啟動的使用者看不到其他說明 |
 
 ---
