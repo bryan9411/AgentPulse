@@ -63,7 +63,7 @@ function skillsCount(fs: HostFs, cwd: string): number {
 }
 
 // The setting reads like "Gemini 4 Hydrogen (Medium)": the level in brackets.
-export function splitAgyModel(value: string | null): SessionInfo {
+export function splitAgyModel(value: string | null): Pick<SessionInfo, 'model' | 'effort'> {
 	if (!value) return {model: null, effort: null};
 	const m = /^(.*\S)\s*\(([^()]+)\)$/.exec(value.trim());
 	return m ? {model: m[1] ?? null, effort: m[2] ?? null} : {model: value.trim(), effort: null};
@@ -71,8 +71,11 @@ export function splitAgyModel(value: string | null): SessionInfo {
 
 // Not tested: whether a model switched inside a running agy is written back
 // here at once; the file holds the last choice.
+// Context usage is not supported (SPEC 6.8): agy's screen does not show it
+// and its conversations are kept in SQLite.
 function sessionInfo(fs: HostFs): SessionInfo {
-	return splitAgyModel(stringField(readJson(fs, join(geminiDir(fs), 'antigravity-cli', 'settings.json')), 'model'));
+	const model = splitAgyModel(stringField(readJson(fs, join(geminiDir(fs), 'antigravity-cli', 'settings.json')), 'model'));
+	return {...model, context: null};
 }
 
 export const agy: AgentAdapter = {
@@ -89,5 +92,6 @@ export const agy: AgentAdapter = {
 	accountStatus,
 	mcpServers,
 	skillsCount,
+	contextWindows: {},
 	sessionInfo,
 };

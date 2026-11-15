@@ -29,6 +29,7 @@ import {
 	type UiPanes,
 } from '../services/layout.ts';
 import {readAccounts} from '../services/accounts.ts';
+import {contextView, contextWindow} from '../services/context/usage.ts';
 import {gitDue, readFacts} from '../services/details.ts';
 import {sessionPorts} from '../services/ports.ts';
 import {addProject} from '../services/projects.ts';
@@ -70,10 +71,14 @@ function hudInput(state: AppState): HudInput {
 	const status = session ? state.statuses[session.id] : undefined;
 	const d = session ? state.details[session.id] : undefined;
 	const now = Date.now();
+	const usage = d?.info?.context ?? null;
+	const builtIn = (session && getAgent(session.agent)?.contextWindows) ?? {};
+	const window = contextWindow(d?.info?.model ?? null, builtIn, state.config.contextWindows);
 	return {
 		tooSmall: windowTooSmall(state),
 		glyphs: GLYPHS[state.config.glyphs],
 		now,
+		contextWarnAt: state.config.contextWarnAt,
 		project,
 		session: session && {
 			...session,
@@ -89,6 +94,7 @@ function hudInput(state: AppState): HudInput {
 				ports: d.ports ?? [],
 				createdAt: session.created > 0 ? session.created * 1000 : null,
 				changedAt: status?.changedAt ?? null,
+				context: usage && contextView(usage, window),
 			},
 		},
 	};
@@ -257,7 +263,11 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		const session = selectedSession(store.get());
 		const adapter = session && getAgent(session.agent);
 		if (!session || !adapter) return;
-		const info = adapter.sessionInfo(fs, {cwd: session.cwd, sessionId: session.agentSession || null});
+		const info = adapter.sessionInfo(fs, {
+			cwd: session.cwd,
+			sessionId: session.agentSession || null,
+			pid: pids.get(session.id) ?? null,
+		});
 		store.set(s => A.setDetails(s, session.id, {info}));
 	};
 

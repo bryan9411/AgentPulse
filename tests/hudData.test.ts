@@ -6,7 +6,7 @@ import {claude} from '../src/agents/claude.ts';
 import {agy} from '../src/agents/agy.ts';
 import {DEFAULT_CONFIG} from '../src/config/config.ts';
 import {exec} from '../src/infra/exec.ts';
-import {hostFs, readTail} from '../src/infra/fsx.ts';
+import {hostFs, readHead, readTail} from '../src/infra/fsx.ts';
 import {gitStats, parseShortstat} from '../src/infra/git.ts';
 import {parseCwds, parseLsof, parsePs} from '../src/infra/platform/darwin.ts';
 import {readAccounts} from '../src/services/accounts.ts';
@@ -125,6 +125,9 @@ describe('files on disk', () => {
 		expect(readTail(path, 3)).toBe('END');
 		expect(readTail(path, 10_000)?.length).toBe(103);
 		expect(readTail(join(dir, 'missing'), 3)).toBeNull();
+		expect(readHead(path, 3)).toBe('aaa');
+		expect(readHead(path, 10_000)?.length).toBe(103);
+		expect(readHead(join(dir, 'missing'), 3)).toBeNull();
 	});
 
 	test('rules file: first match by name, else the first name as missing', () => {
@@ -152,8 +155,8 @@ describe('details in state', () => {
 	test('merge per part, ignore unchanged results and closed sessions', () => {
 		let s = A.setSessions(A.initialState({...DEFAULT_CONFIG, projects: ['/w']}), [session]);
 		s = A.setDetails(s, 's1', {ports: [3000]});
-		s = A.setDetails(s, 's1', {info: {model: 'm', effort: null}});
-		expect(s.details.s1).toEqual({ports: [3000], info: {model: 'm', effort: null}});
+		s = A.setDetails(s, 's1', {info: {model: 'm', effort: null, context: null}});
+		expect(s.details.s1).toEqual({ports: [3000], info: {model: 'm', effort: null, context: null}});
 		expect(A.setDetails(s, 's1', {ports: [3000]})).toBe(s);
 		expect(A.setDetails(s, 'gone', {ports: [1]})).toBe(s);
 		expect(A.setSessions(s, []).details).toEqual({});

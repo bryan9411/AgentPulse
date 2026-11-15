@@ -71,19 +71,21 @@ export type HostFs = {
 	readText(path: string): string | null;
 	// The last `bytes` of a file; logs can grow to many megabytes.
 	readTail(path: string, bytes: number): string | null;
+	// The first `bytes` of a file.
+	readHead(path: string, bytes: number): string | null;
 	// Entry names; [] when the folder is missing.
 	listDir(path: string): string[];
 	mtimeMs(path: string): number | null;
 };
 
-export function readTail(path: string, bytes: number): string | null {
+function readSlice(path: string, bytes: number, fromEnd: boolean): string | null {
 	try {
 		const fd = openSync(path, 'r');
 		try {
 			const size = fstatSync(fd).size;
 			const length = Math.min(size, bytes);
 			const buf = Buffer.alloc(length);
-			readSync(fd, buf, 0, length, size - length);
+			readSync(fd, buf, 0, length, fromEnd ? size - length : 0);
 			return buf.toString('utf8');
 		} finally {
 			closeSync(fd);
@@ -92,6 +94,9 @@ export function readTail(path: string, bytes: number): string | null {
 		return null;
 	}
 }
+
+export const readTail = (path: string, bytes: number) => readSlice(path, bytes, true);
+export const readHead = (path: string, bytes: number) => readSlice(path, bytes, false);
 
 export function listDir(path: string): string[] {
 	try {
@@ -108,6 +113,7 @@ export function hostFs(home = homedir(), env: Record<string, string | undefined>
 		exists: path => existsSync(path),
 		readText,
 		readTail,
+		readHead,
 		listDir,
 		mtimeMs,
 	};

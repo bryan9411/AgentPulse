@@ -32,5 +32,6 @@ export const codex: AgentAdapter = {
 	accountStatus: () => null,
 	mcpServers: () => null,
 	skillsCount: () => null,
-	sessionInfo: () => ({model: null, effort: null}),
+	contextWindows: {},
+	sessionInfo: () => ({model: null, effort: null, context: null}),
 };

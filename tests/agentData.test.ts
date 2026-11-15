@@ -1,7 +1,7 @@
 import {describe, expect, test} from 'bun:test';
 import {dirname} from 'node:path';
 import {agy, splitAgyModel} from '../src/agents/agy.ts';
-import {claude, findClaudeLog, lastReplyInfo} from '../src/agents/claude.ts';
+import {claude, findClaudeLog, firstReplyInput, inputTokens, liveConversation, scanTail} from '../src/agents/claude.ts';
 import {codex} from '../src/agents/codex.ts';
 import type {HostFs} from '../src/infra/fsx.ts';
 
@@ -25,15 +25,19 @@ function fakeFs(files: Record<string, string>, env: Record<string, string> = {},
 		exists: path => path in files || dirs.has(path),
 		readText: path => files[path] ?? null,
 		readTail: (path, bytes) => (path in files ? files[path]!.slice(-bytes) : null),
+		readHead: (path, bytes) => (path in files ? files[path]!.slice(0, bytes) : null),
 		listDir: path => [...(dirs.get(path) ?? [])],
 		mtimeMs: path => (path in files ? (mtimes[path] ?? 0) : null),
 	};
 }
 
 // Shape of Claude Code 2.1.325 log lines, contents removed.
-const assistant = (model: string, effort?: string) =>
-	JSON.stringify({type: 'assistant', ...(effort ? {effort} : {}), message: {model, role: 'assistant', usage: {input_tokens: 2}}});
+const usageOf = (input: number) => ({input_tokens: 2, cache_creation_input_tokens: 400, cache_read_input_tokens: input - 402, output_tokens: 598});
+const assistant = (model: string, effort?: string, input = 1000, extra: Record<string, unknown> = {}) =>
+	JSON.stringify({type: 'assistant', isSidechain: false, ...extra, ...(effort ? {effort} : {}), message: {model, role: 'assistant', usage: usageOf(input)}});
 const user = JSON.stringify({type: 'user', message: {role: 'user', content: 'hi'}});
+const compacted = (post: number) =>
+	JSON.stringify({type: 'system', subtype: 'compact_boundary', compactMetadata: {trigger: 'manual', preTokens: 37428, postTokens: post}});
 
 describe('claude data', () => {
 	const id = '4f935b49-b92f-497b-80e4-ada2f0f17758';
@@ -102,23 +106,70 @@ describe('claude data', () => {
 
 	test('model and effort come from the latest real reply', () => {
 		const text = [assistant('claude-opus-5-5', 'high'), user, assistant('claude-sonnet-5-5', 'medium'), assistant('<synthetic>'), user].join('\n');
-		expect(lastReplyInfo(text)).toEqual({model: 'claude-sonnet-5-5', effort: 'medium'});
+		expect(scanTail(text)).toMatchObject({model: 'claude-sonnet-5-5', effort: 'medium'});
 		// A tail usually starts mid-line.
-		expect(lastReplyInfo(`l":"x"}}\n${assistant('claude-opus-5-5')}`)).toEqual({model: 'claude-opus-5-5', effort: null});
-		expect(lastReplyInfo(user)).toBeNull();
+		expect(scanTail(`l":"x"}}\n${assistant('claude-opus-5-5')}`)).toMatchObject({model: 'claude-opus-5-5', effort: null});
+		expect(scanTail(user)).toBeNull();
+	});
+
+	test('input tokens add cached and uncached input, never output', () => {
+		expect(inputTokens(usageOf(37125))).toBe(37125);
+		expect(inputTokens({output_tokens: 5})).toBeNull();
+		expect(inputTokens(undefined)).toBeNull();
+	});
+
+	test('subagent replies are not the main conversation', () => {
+		const text = [assistant('claude-opus-5-5', 'high', 50_000), assistant('claude-haiku-5-5', undefined, 900, {isSidechain: true})].join('\n');
+		expect(scanTail(text)).toMatchObject({model: 'claude-opus-5-5', input: 50_000, compactedTo: null});
+		expect(firstReplyInput([user, assistant('claude-haiku-5-5', undefined, 900, {isSidechain: true}), assistant('claude-opus-5-5', undefined, 37_005)].join('\n'))).toBe(37_005);
+	});
+
+	test('a compaction after the latest reply is reported, an older one is not', () => {
+		expect(scanTail([assistant('claude-opus-5-5', 'high', 37_125), compacted(7783), user].join('\n'))).toMatchObject({input: 37_125, compactedTo: 7783});
+		expect(scanTail([compacted(7783), assistant('claude-opus-5-5', 'high', 20_000)].join('\n'))).toMatchObject({input: 20_000, compactedTo: null});
+	});
+
+	test('sessionInfo: context used is the latest input, the base the first', () => {
+		const fs = fakeFs({[log]: [user, assistant('claude-opus-5-5', 'low', 37_005), user, assistant('claude-opus-5-5', 'low', 52_000)].join('\n')});
+		expect(claude.sessionInfo(fs, {cwd: '/w/shop', sessionId: id, pid: null})).toEqual({
+			model: 'claude-opus-5-5',
+			effort: 'low',
+			context: {used: 52_000, base: 37_005},
+		});
+	});
+
+	test('sessionInfo: after a compaction, base plus the compacted size', () => {
+		const other = `${HOME}/.claude/projects/-w-shop/0b9f7c1e-0000-4000-8000-000000000001.jsonl`;
+		const fs = fakeFs({[other]: [user, assistant('claude-opus-5-5', 'low', 37_125), compacted(7783)].join('\n')});
+		expect(claude.sessionInfo(fs, {cwd: '/w/shop', sessionId: '0b9f7c1e-0000-4000-8000-000000000001', pid: null}).context).toEqual({used: 44_908, base: 37_125});
+	});
+
+	test('sessionInfo follows the process to the conversation /clear started', () => {
+		const fresh = '89b25759-e0dc-47f7-893e-cca1d6811ae7';
+		const freshLog = `${HOME}/.claude/projects/-w-shop/${fresh}.jsonl`;
+		const files = {
+			[log]: assistant('claude-opus-5-5', 'low', 90_000),
+			[freshLog]: assistant('claude-opus-5-5', 'high', 37_125),
+			[`${HOME}/.claude/sessions/13528.json`]: JSON.stringify({pid: 13528, sessionId: fresh, status: 'idle'}),
+		};
+		const fs = fakeFs(files);
+		expect(liveConversation(fs, 13528)).toBe(fresh);
+		expect(claude.sessionInfo(fs, {cwd: '/w/shop', sessionId: id, pid: 13528})).toMatchObject({effort: 'high', context: {used: 37_125}});
+		// Unknown or mismatched process: the pinned id.
+		expect(claude.sessionInfo(fs, {cwd: '/w/shop', sessionId: id, pid: 999})).toMatchObject({context: {used: 90_000}});
+		const stale = fakeFs({...files, [`${HOME}/.claude/sessions/13528.json`]: JSON.stringify({pid: 1, sessionId: fresh})});
+		expect(liveConversation(stale, 13528)).toBeNull();
+		expect(liveConversation(fakeFs({[`${HOME}/.claude/sessions/5.json`]: '{"sessionId":"../../etc"}'}), 5)).toBeNull();
 	});
 
 	test('sessionInfo falls back to the default model before the first reply', () => {
 		const settings = `${HOME}/.claude/settings.json`;
-		expect(claude.sessionInfo(fakeFs({[log]: `${user}\n${assistant('claude-opus-5-5', 'low')}\n`}), {cwd: '/w/shop', sessionId: id})).toEqual({
-			model: 'claude-opus-5-5',
-			effort: 'low',
-		});
-		expect(claude.sessionInfo(fakeFs({[log]: user, [settings]: '{"model":"opus"}'}), {cwd: '/w/shop', sessionId: id})).toEqual({
+		expect(claude.sessionInfo(fakeFs({[log]: user, [settings]: '{"model":"opus"}'}), {cwd: '/w/shop', sessionId: id, pid: null})).toEqual({
 			model: 'opus',
 			effort: null,
+			context: null,
 		});
-		expect(claude.sessionInfo(fakeFs({}), {cwd: '/w/shop', sessionId: id})).toEqual({model: null, effort: null});
+		expect(claude.sessionInfo(fakeFs({}), {cwd: '/w/shop', sessionId: id, pid: null})).toEqual({model: null, effort: null, context: null});
 	});
 
 	test('launch pins the conversation id', () => {
@@ -140,7 +191,7 @@ describe('agy data', () => {
 		expect(splitAgyModel('Gemini 4 Flash')).toEqual({model: 'Gemini 4 Flash', effort: null});
 		expect(splitAgyModel(null)).toEqual({model: null, effort: null});
 		const fs = fakeFs({[`${gem}/antigravity-cli/settings.json`]: '{"model":"Gemini 4 Hydrogen (Medium)","trustedWorkspaces":[]}'});
-		expect(agy.sessionInfo(fs, {cwd: '/w', sessionId: null})).toEqual({model: 'Gemini 4 Hydrogen', effort: 'Medium'});
+		expect(agy.sessionInfo(fs, {cwd: '/w', sessionId: null, pid: null})).toEqual({model: 'Gemini 4 Hydrogen', effort: 'Medium', context: null});
 	});
 
 	test('MCP: empty or missing file means none', () => {

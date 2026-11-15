@@ -21,12 +21,15 @@ export type Glyphs = {
 	error: string;
 	expanded: string;
 	collapsed: string;
+	// Context meter, used and free parts (SPEC 5.6).
+	barUsed: string;
+	barFree: string;
 };
 
 // SPEC 3.2, with an ASCII fallback for terminals that draw these two cells wide.
 export const GLYPHS: Record<GlyphMode, Glyphs> = {
-	unicode: {running: '●', approval: '◐', idle: '○', done: '✓', error: '✕', expanded: '▾', collapsed: '▸'},
-	ascii: {running: '*', approval: '!', idle: 'o', done: '+', error: 'x', expanded: 'v', collapsed: '>'},
+	unicode: {running: '●', approval: '◐', idle: '○', done: '✓', error: '✕', expanded: '▾', collapsed: '▸', barUsed: '━', barFree: '─'},
+	ascii: {running: '*', approval: '!', idle: 'o', done: '+', error: 'x', expanded: 'v', collapsed: '>', barUsed: '#', barFree: '-'},
 };
 
 // Colour lives only on the glyph; idle and done stay in the text grey.

@@ -12,10 +12,23 @@ export type ScreenState = Exclude<AgentState, 'done'>;
 
 export type AccountStatus = 'signed-in' | 'not-set';
 
-// null: not found; the HUD shows —.
-export type SessionInfo = {model: string | null; effort: string | null};
+// Tokens, SPEC 5.6. `used` is the input of the latest request; `base` the
+// input of the conversation's first request (system, tools, MCP, first
+// message), null when it could not be found.
+export type ContextUsage = {used: number; base: number | null};
 
-// SPEC 6.4. Context usage joins sessionInfo in M5.
+// null: not found; the HUD shows —.
+export type SessionInfo = {model: string | null; effort: string | null; context: ContextUsage | null};
+
+export type SessionContext = {
+	cwd: string;
+	// Our pinned conversation id (@ap-agent-session), if any.
+	sessionId: string | null;
+	// The agent process in the session's pane; 0 or null when unknown.
+	pid: number | null;
+};
+
+// SPEC 6.4.
 export type AgentAdapter = {
 	id: AgentId;
 	displayName: string;
@@ -39,5 +52,8 @@ export type AgentAdapter = {
 	accountStatus(fs: HostFs): AccountStatus | null;
 	mcpServers(fs: HostFs, cwd: string): string[] | null;
 	skillsCount(fs: HostFs, cwd: string): number | null;
-	sessionInfo(fs: HostFs, ctx: {cwd: string; sessionId: string | null}): SessionInfo;
+	// Model name (or its prefix) → context window in tokens; the config
+	// file's `contextWindows` overrides it (SPEC 5.6).
+	contextWindows: Readonly<Record<string, number>>;
+	sessionInfo(fs: HostFs, ctx: SessionContext): SessionInfo;
 };

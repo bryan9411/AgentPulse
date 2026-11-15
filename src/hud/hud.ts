@@ -1,4 +1,5 @@
 import type {AgentState} from '../agents/types.ts';
+import type {ContextView} from '../services/context/usage.ts';
 import {HUD_ROWS} from '../config/layout.ts';
 import {COLORS, GLYPHS, stateGlyph, type Glyphs} from '../ui/theme.ts';
 import {padEnd, truncateStart, width as cells} from '../ui/text.ts';
@@ -17,6 +18,8 @@ export type HudDetails = {
 	// ms; null when unknown.
 	createdAt: number | null;
 	changedAt: number | null;
+	// Line 4 (SPEC 5.6); null before the first reply or when unsupported.
+	context: ContextView | null;
 };
 
 export type HudSession = {
@@ -37,6 +40,8 @@ export type HudInput = {
 	session?: HudSession | null;
 	glyphs?: Glyphs;
 	now?: number;
+	// Percent at which the context figure turns the warning colour.
+	contextWarnAt?: number;
 };
 
 export const STATE_LABELS: Record<AgentState, string> = {
@@ -116,6 +121,69 @@ export function progressSegments(se: HudSession, now: number): Segment[] {
 	];
 }
 
+// 950 → 950, 37125 → 37.1k, 412000 → 412k, 1000000 → 1.0m.
+export function formatTokens(n: number): string {
+	const v = Math.max(0, Math.round(n));
+	if (v < 1000) return String(v);
+	if (v < 100_000) return `${(v / 1000).toFixed(1)}k`;
+	if (v < 1_000_000) return `${Math.round(v / 1000)}k`;
+	return `${(v / 1_000_000).toFixed(1)}m`;
+}
+
+const BAR_MIN = 8;
+const BAR_MAX = 30;
+
+// Line 4 (SPEC 5.6), exactly `size` cells. When space runs out the bar
+// shrinks first, then the breakdown goes, then only the headline is left.
+export function contextLine(view: ContextView | null, size: number, glyphs: Glyphs, warnAt = 80): string {
+	if (size <= 0) return '';
+	const label = 'context ';
+	const figure = !view ? UNKNOWN : view.percent !== null ? `${view.percent}%` : formatTokens(view.used);
+	const head = label + figure;
+	const headWidth = cells(head);
+	if (headWidth >= size) return `${fg(COLORS.dim)}${padEnd(head, size)}`;
+	const warn = view?.percent != null && view.percent >= warnAt;
+	const headText = `${fg(COLORS.dim)}${label}${fg(warn ? COLORS.warn : COLORS.text)}${figure}`;
+
+	let detail = '';
+	if (view && view.system !== null && view.chat !== null) {
+		detail =
+			view.percent !== null
+				? `≈ system ${view.system} · chat ${view.chat} · free ${view.free ?? 0}`
+				: `≈ system ${formatTokens(view.system)} · chat ${formatTokens(view.chat)}`;
+	} else if (view?.free != null) {
+		detail = `free ${view.free}`;
+	}
+	const detailWidth = cells(detail);
+	const hasBar = view?.percent != null;
+
+	let bar = 0;
+	let showDetail = detail !== '';
+	if (hasBar) {
+		const room = (withDetail: boolean) => size - headWidth - 1 - (withDetail ? 2 + detailWidth : 0);
+		if (showDetail && room(true) >= BAR_MIN) bar = Math.min(BAR_MAX, room(true));
+		else {
+			showDetail = false;
+			if (room(false) >= BAR_MIN) bar = Math.min(BAR_MAX, room(false));
+		}
+	} else if (showDetail && headWidth + 2 + detailWidth > size) {
+		showDetail = false;
+	}
+
+	let out = headText;
+	let used = headWidth;
+	if (bar > 0 && view?.percent != null) {
+		const full = Math.min(bar, Math.round((bar * view.percent) / 100));
+		out += ` ${fg(COLORS.text)}${glyphs.barUsed.repeat(full)}${fg(COLORS.rule)}${glyphs.barFree.repeat(bar - full)}`;
+		used += 1 + bar;
+	}
+	if (showDetail) {
+		out += `  ${fg(COLORS.dim)}${detail}`;
+		used += 2 + detailWidth;
+	}
+	return `${out}${' '.repeat(Math.max(0, size - used))}`;
+}
+
 // Fitted fields joined by the separator, padded to exactly `size` cells.
 export function renderSegments(segments: readonly Segment[], size: number): string {
 	const fitted = fitSegments(segments, size);
@@ -145,8 +213,7 @@ export function hudLines(input: HudInput, size: number): string[] {
 		const glyphs = input.glyphs ?? GLYPHS.unicode;
 		lines.push(` ${renderSegments(environmentSegments(se.details, glyphs), inner)}${RESET}`);
 		lines.push(` ${renderSegments(progressSegments(se, input.now ?? Date.now()), inner)}${RESET}`);
-		// Line 4 belongs to the context meter from M5; the folder fills it until then.
-		lines.push(` ${fg(COLORS.dim)}${padEnd(truncateStart(se.cwd, inner), inner)}${RESET}`);
+		lines.push(` ${contextLine(se.details?.context ?? null, inner, glyphs, input.contextWarnAt)}${RESET}`);
 	} else if (!input.project) {
 		lines.push(` ${fg(COLORS.dim)}${padEnd('No project selected', inner)}${RESET}`);
 	} else {

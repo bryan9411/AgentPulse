@@ -51,7 +51,7 @@
  Sessions               │ fix/login-bug · shop-api · codex                                ○ idle
  / filter               │ gpt-5-codex [high] · MCP github, postgres · skills 4 · AGENTS.md ✓
                         │ ⎇ fix/login-bug · +128 −34 · 42m · output 3s ago · :3000
- ▾ shop-api 2           │ context 82% ━━━━━━━━━━━━━━━━━━━━────  system 18 · chat 64 · free 18
+ ▾ shop-api 2           │ context 82% ━━━━━━━━━━━━━━━━━━━━────  ≈ system 18 · chat 64 · free 18
    ◐ feat/checkout      ├── codex ──────────────────────────────────────────────────────────────
    ○ fix/login-bug      │
  ▾ landing-page 2       │   （這一格是 AI 本人的終端機，內容由該 AI 繪製）
@@ -233,7 +233,7 @@
 | 1 | 分支 · 專案 · AI 名稱；右側為狀態 |
 | 2 | 模型與思考檔位 · MCP 伺服器名稱 · Skills 數量 · 規範檔是否存在 |
 | 3 | 分支 · 新增／刪除行數 · 未追蹤檔案數 · 累計執行時間 · 距上次畫面變化多久 · 本機 port |
-| 4 | Context 百分比、進度條、結構明細（M5 之前顯示工作資料夾） |
+| 4 | Context 百分比、進度條、結構明細，見 5.6 |
 
 範例：
 
@@ -258,6 +258,11 @@
 - **明細是估算：** 各家記錄檔只有總量。以該工作階段第一輪的輸入 token 數當作「系統／MCP」基底，其餘算作「對話」。畫面以 `≈` 標示。
 - 已用達 80% 時，百分比改以警示色顯示（門檻可在設定檔 `contextWarnAt` 調整）。
 - 模型的 context 視窗大小由 adapter 內建對照表提供，可在設定檔覆寫；查不到就不顯示百分比。
+- **已用量：** 最後一次請求送出的輸入 token 數（`input_tokens` + `cache_read_input_tokens` + `cache_creation_input_tokens`，不含輸出）。M5 實測與 Claude Code `/context` 顯示的總數一致。
+- **基底：** 目前這段對話第一筆回覆的同一個數字。它含第一句訊息與附帶的檔案內容，所以「系統／MCP」會比 `/context` 的系統部分略高。
+- **壓縮後：** 記錄檔出現 `compact_boundary` 且之後還沒有回覆時，已用量以「基底 + 壓縮後的 token 數（`compactMetadata.postTokens`）」估算；下一次回覆後改回實際數字。M5 實測：壓縮後估計 47.2k，`/context` 為 38k；基底已含第一句訊息的附帶內容，所以估計偏高。
+- **格式（第 4 行）：** 有視窗大小時 `context 37% ━━━━──── ≈ system 4 · chat 33 · free 63`，明細為百分比，三段相加為 100；沒有視窗大小時 `context 37.1k ≈ system 37.1k · chat 0`，以 token 數表示。寬度不足時先縮短進度條，再拿掉明細，最後只留 `context 37%`。還沒有任何回覆時顯示 `context —`。只有百分比數字會套警示色；進度條已用部分為主要文字色，剩餘部分為分隔線色。`glyphs: "ascii"` 時進度條改用 `#` 與 `-`。
+- **進行中的對話：** Claude Code 內 `/clear`、`/resume` 會換成新的對話 id 與記錄檔。Claude Code 會把每個程序目前的對話 id 寫在 `~/.claude/sessions/<程序 id>.json` 的 `sessionId`，以 AI 格的程序 id 讀取這個欄位來找記錄檔（M5 實測 `/clear` 會立即更新）；讀不到時才用 `@ap-agent-session`。
 
 ### 5.7 帳號狀態
 
@@ -446,14 +451,15 @@ interface AgentAdapter {
   isSuspended(screen: string): boolean;              // 畫面停在暫停訊息，見 5.3
 
   // 以下由呼叫端傳入唯讀的檔案存取介面 HostFs（家目錄、環境變數、檔案是否存在、
-  // 讀文字、讀檔尾、列資料夾、修改時間）；查不到回傳 null，介面顯示 `—`。
+  // 讀文字、讀檔頭、讀檔尾、列資料夾、修改時間）；查不到回傳 null，介面顯示 `—`。
   accountStatus(fs: HostFs): 'signed-in' | 'not-set';
   mcpServers(fs: HostFs, cwd: string): string[] | null;
   skillsCount(fs: HostFs, cwd: string): number | null;
-  sessionInfo(fs: HostFs, ctx: { cwd: string; sessionId: string | null }): {
+  contextWindows: Record<string, number>;  // 模型名稱 → context 視窗 token 數，見 5.6
+  sessionInfo(fs: HostFs, ctx: { cwd: string; sessionId: string | null; pid: number | null }): {
     model: string | null;
     effort: string | null;
-    // M5 加入 context、tokens
+    context: { used: number; base: number | null } | null;   // M5，token 數
   };
 }
 ```
@@ -463,7 +469,7 @@ interface AgentAdapter {
 
 新增一家 AI 只需要新增一個 adapter 檔並註冊，其他模組不改。
 
-各方法隨階段加入：M2 只有 `id`、`displayName`、`rulesFile`、`binary`、`launchCommand`、`matchProcess`；M3 加入 `classify`、`isSuspended`；M4 加入資料方法、`pinsSessionId`，`rulesFile` 改為 `rulesFiles`。`launchCommand` 回傳的第一個元素是程式名稱，實際啟動時換成找到的絕對路徑；找不到時新增對話框標示 `not installed`，不建立工作階段。
+各方法隨階段加入：M2 只有 `id`、`displayName`、`rulesFile`、`binary`、`launchCommand`、`matchProcess`；M3 加入 `classify`、`isSuspended`；M4 加入資料方法、`pinsSessionId`，`rulesFile` 改為 `rulesFiles`；M5 加入 `contextWindows`、`sessionInfo` 的 `context` 與 `pid`。`launchCommand` 回傳的第一個元素是程式名稱，實際啟動時換成找到的絕對路徑；找不到時新增對話框標示 `not installed`，不建立工作階段。
 
 ### 6.5 Platform 介面
 
@@ -516,15 +522,16 @@ interface Platform {
 | 項目 | Claude Code | Codex | agy |
 |---|---|---|---|
 | 模型、思考檔位 | 記錄檔最後一筆 assistant 的 `message.model` 與同一筆的 `effort`；還沒有回覆時取 `~/.claude/settings.json` 的 `model` | `~/.codex/config.toml` 的 `model`、`model_reasoning_effort` | `~/.gemini/antigravity-cli/settings.json` 的 `model`，例如 `Gemini 4 Hydrogen (Medium)`，括號內為檔位 |
-| Context 用量 | 記錄檔最後一筆 `message.usage` | 工作階段記錄檔 | 畫面底部狀態 |
+| Context 用量 | 記錄檔最後一筆 assistant 的 `message.usage`；基底為第一筆；見 5.6 | 延後（未實測） | 畫面底部沒有顯示，對話存在 `~/.gemini/antigravity-cli/conversations/*.db`（SQLite）；M5 不支援，顯示 `context —` |
 | MCP | `~/.claude.json` 的 `mcpServers` 與 `projects[<工作資料夾>].mcpServers`、工作資料夾的 `.mcp.json` | `config.toml` 的 `mcp_servers` | `~/.gemini/config/mcp_config.json` 的 `mcpServers` |
 | Skills | `~/.claude/skills/*/SKILL.md`、工作資料夾 `.claude/skills/*/SKILL.md`、claude.ai 同步的 `~/.claude/skills/synced/<bucket>/*/SKILL.md`、`settings.json` 的 `enabledPlugins` 對應到 `plugins/installed_plugins.json` 安裝資料夾下的 `skills/*/SKILL.md`（與 `/skills` 的數量對照過） | `~/.codex/skills/*/SKILL.md` | `~/.gemini/config/skills/*/SKILL.md`、工作資料夾 `.agents/skills/*/SKILL.md` |
 | 帳號 | 見 5.7 | 見 5.7 | 見 5.7 |
 | 本機實測 | 記錄檔欄位與 `--session-id` 旗標已確認（2.1.325） | 未實測 | 1.5.9：`settings.json` 的 `model` 欄位與 `oauth_creds.json` 已確認存在；Skills 與 MCP 路徑依執行檔內的字串推得 |
 
 - Claude Code 記錄檔位置：`~/.claude/projects/<路徑代碼>/<sessionId>.jsonl`。建立工作階段時產生 UUID，以 `claude --session-id <uuid>` 啟動並存入 `@ap-agent-session`；讀取時在 `~/.claude/projects/` 的各資料夾找 `<uuid>.jsonl`，不自行重現路徑代碼的規則。M4 之前建立、沒有 id 的工作階段，改取路徑代碼資料夾（非英數字元換成 `-`）中最新的記錄檔。
-- 記錄檔可能很大，只讀檔尾 256 KB；找不到 assistant 紀錄時再讀 4 MB。
-- 已知限制（未實測）：在 Claude Code 內 `/clear` 或 `/resume` 會換成另一個對話 id，之後的記錄檔不再是綁定的那份。
+- 記錄檔可能很大，只讀檔尾 256 KB；找不到 assistant 紀錄時再讀 4 MB。基底讀檔頭 1 MB，找不到時再讀 4 MB（M5 實測第一筆回覆約在 200–360 KB 處）；同一份記錄檔的基底不會變，讀到後記住。
+- `/clear`、`/resume` 換對話後，以 `~/.claude/sessions/<程序 id>.json` 的 `sessionId` 找新的記錄檔，見 5.6。`/resume` 未實測。
+- 內建視窗大小（2026-11 依 Anthropic 文件，Claude Code `/context` 對 Opus 5.5 顯示 `1m` 一致）：Opus 5.5、Opus 5、Opus 4.6–4.8、Sonnet 5.5、Sonnet 5、Sonnet 4.6、Haiku 5.5、Fable 5–5.2 為 1,000,000；Haiku 4.5 為 200,000。模型名稱以前綴比對，帶日期後綴的名稱也適用。
 - Codex 目前未安裝於開發機（使用者沒有訂閱），相關實作只能依官方文件撰寫，完成後需標示未實測，直到實機驗證。agy（Antigravity CLI）1.5.9 已於 2026-11-15 安裝在 `~/.local/bin/agy`。
 
 ---
@@ -581,6 +588,8 @@ interface Platform {
 | 自動壓縮（Auto-Compact）與 `c` 鍵 | 移除，只保留 Context 用量顯示與警示色 | 使用者決定；避免主動對 AI 送字，且各家已有原生 `/compact`、`/clear` 或 skill |
 | （原始需求未涵蓋）資訊列寬度不足 | 欄位依優先順序先縮短、再整個拿掉 | M4 定義；固定順序讓重要欄位（模型、分支）永遠最後才消失 |
 | Adapter 資料方法為非同步、無參數 | 改為同步並接收 `HostFs` | M4 實作時調整，見 6.4 |
+| （原始需求未涵蓋）Context 用量的計算方式 | 只算輸入 token；壓縮後以基底加壓縮後 token 數估算；以程序 id 跟上 `/clear` 後的新對話 | M5 實測與 Claude Code `/context` 對照，見 5.6 |
+| agy、Codex 的 Context 用量 | 暫不支援，顯示 `context —` | agy 畫面不顯示用量、對話存在 SQLite；Codex 延後 |
 
 ---
 

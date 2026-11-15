@@ -2,7 +2,9 @@ import {describe, expect, test} from 'bun:test';
 import {stripVTControlCharacters} from 'node:util';
 import {HUD_ROWS} from '../src/config/layout.ts';
 import {fitSegments, type Segment} from '../src/hud/fit.ts';
-import {formatDuration, hudFrame, hudLines, topBarFormat, type HudDetails} from '../src/hud/hud.ts';
+import {contextLine, formatDuration, formatTokens, hudFrame, hudLines, topBarFormat, type HudDetails} from '../src/hud/hud.ts';
+import {contextView, contextWindow} from '../src/services/context/usage.ts';
+import {COLORS, GLYPHS} from '../src/ui/theme.ts';
 import {width} from '../src/ui/text.ts';
 
 const plain = (lines: string[]) => lines.map(l => stripVTControlCharacters(l));
@@ -125,6 +127,7 @@ describe('hud detail lines', () => {
 		ports: [3000, 5173],
 		createdAt: now - 42 * 60_000,
 		changedAt: now - 3000,
+		context: contextView({used: 370_000, base: 40_000}, 1_000_000),
 	};
 	const session = {branch: 'main', agent: 'claude', cwd: '/w/shop', dead: false, exitStatus: null, state: 'idle' as const, details};
 
@@ -132,14 +135,15 @@ describe('hud detail lines', () => {
 		const lines = plain(hudLines({tooSmall: false, project, session, now}, 100));
 		expect(lines[1]?.trimEnd()).toBe(' claude-opus-5-5 [medium] · MCP github, postgres · skills 4 · CLAUDE.md ✓');
 		expect(lines[2]?.trimEnd()).toBe(' fix/login-bug · +128 -34 · 2 untracked · up 42m · output 3s ago · :3000 :5173');
-		expect(lines[3]?.trimEnd()).toBe(' /w/shop');
+		expect(lines[3]?.trimEnd()).toBe(` context 37% ${'━'.repeat(11)}${'─'.repeat(19)}  ≈ system 4 · chat 33 · free 63`);
 	});
 
 	test('unknown fields show — and a clean tree says so', () => {
-		const empty: HudDetails = {...details, model: null, effort: null, mcp: null, skills: null, rules: {name: 'GEMINI.md', present: false}, git: {branch: null, added: 0, removed: 0, untracked: 0}, ports: [], createdAt: null, changedAt: null};
+		const empty: HudDetails = {...details, context: null, model: null, effort: null, mcp: null, skills: null, rules: {name: 'GEMINI.md', present: false}, git: {branch: null, added: 0, removed: 0, untracked: 0}, ports: [], createdAt: null, changedAt: null};
 		const lines = plain(hudLines({tooSmall: false, project, session: {...session, details: empty}, now}, 100));
 		expect(lines[1]?.trimEnd()).toBe(' model — · MCP — · skills — · no GEMINI.md');
 		expect(lines[2]?.trimEnd()).toBe(' main · clean');
+		expect(lines[3]?.trimEnd()).toBe(' context —');
 		const before = plain(hudLines({tooSmall: false, project, session: {...session, details: undefined}, now}, 100));
 		expect(before[2]?.trimEnd()).toBe(' main · —');
 	});
@@ -171,5 +175,78 @@ describe('hud detail lines', () => {
 		});
 		expect(text).toContain('#[align=right]');
 		expect(text.replace(/#\[[^\]]*\]/g, '').endsWith('claude ●  codex ○ ')).toBe(true);
+	});
+});
+
+describe('context (SPEC 5.6)', () => {
+	const glyphs = GLYPHS.unicode;
+	const line = (view: ReturnType<typeof contextView> | null, size: number, warnAt?: number) =>
+		stripVTControlCharacters(contextLine(view, size, glyphs, warnAt));
+
+	test('window: config override, then the adapter table, exact before prefix', () => {
+		const builtIn = {'claude-opus-5': 1_000_000, 'claude-haiku-4-5': 200_000};
+		expect(contextWindow('claude-opus-5-5', builtIn, {})).toBe(1_000_000);
+		expect(contextWindow('claude-haiku-4-5-20251001', builtIn, {})).toBe(200_000);
+		expect(contextWindow('claude-opus-5-5', builtIn, {'claude-opus-5-5': 500_000})).toBe(500_000);
+		expect(contextWindow('claude-opus-5-5', builtIn, {'claude-opus': 300_000})).toBe(300_000);
+		expect(contextWindow('opus', builtIn, {})).toBeNull();
+		expect(contextWindow(null, builtIn, {})).toBeNull();
+	});
+
+	test('shares are whole percents that add up to 100', () => {
+		for (const [used, base] of [[370_000, 40_000], [37_125, 37_125], [999_999, 12_345], [1_200_000, 50_000], [10, 3]] as const) {
+			const v = contextView({used, base}, 1_000_000);
+			expect((v.system ?? 0) + (v.chat ?? 0) + (v.free ?? 0)).toBe(100);
+			expect(v.percent).toBe((v.system ?? 0) + (v.chat ?? 0));
+		}
+		expect(contextView({used: 820_000, base: 180_000}, 1_000_000)).toMatchObject({percent: 82, system: 18, chat: 64, free: 18});
+		// The base can never exceed what is used.
+		expect(contextView({used: 30_000, base: 40_000}, 1_000_000)).toMatchObject({system: 3, chat: 0});
+	});
+
+	test('without a window: token counts and no bar', () => {
+		const v = contextView({used: 37_125, base: 30_000}, null);
+		expect(v.percent).toBeNull();
+		expect(line(v, 60).trimEnd()).toBe('context 37.1k  ≈ system 30.0k · chat 7.1k');
+		expect(line(v, 20).trimEnd()).toBe('context 37.1k');
+	});
+
+	test('without a base only the free share is shown', () => {
+		expect(line(contextView({used: 370_000, base: null}, 1_000_000), 60).trimEnd()).toBe(`context 37% ${'━'.repeat(11)}${'─'.repeat(19)}  free 63`);
+	});
+
+	test('narrowing: shorter bar, then no breakdown, then only the figure', () => {
+		const v = contextView({used: 820_000, base: 180_000}, 1_000_000);
+		expect(line(v, 70).trimEnd()).toBe(`context 82% ${'━'.repeat(21)}${'─'.repeat(4)}  ≈ system 18 · chat 64 · free 18`);
+		expect(line(v, 56).trimEnd()).toBe(`context 82% ${'━'.repeat(9)}${'─'.repeat(2)}  ≈ system 18 · chat 64 · free 18`);
+		// Too narrow for an 8-cell bar beside the breakdown: the breakdown goes, the bar grows back.
+		expect(line(v, 50).trimEnd()).toBe(`context 82% ${'━'.repeat(25)}${'─'.repeat(5)}`);
+		expect(line(v, 20).trimEnd()).toBe(`context 82% ${'━'.repeat(7)}${'─'.repeat(1)}`);
+		expect(line(v, 15).trimEnd()).toBe('context 82%');
+		expect(line(v, 8).trimEnd()).toBe('context…');
+		for (let size = 0; size <= 120; size++) expect(width(line(v, size))).toBe(size);
+		expect(width(line(null, 40))).toBe(40);
+	});
+
+	test('the figure alone turns the warning colour at the threshold', () => {
+		const at = (pct: number, warnAt?: number) => contextLine(contextView({used: pct * 10_000, base: 10_000}, 1_000_000), 80, glyphs, warnAt);
+		const warn = `\x1b[38;2;208;162;76m`;
+		expect(at(80)).toContain(`${warn}80%`);
+		expect(at(79)).not.toContain(warn);
+		expect(at(60, 50)).toContain(`${warn}60%`);
+		expect(COLORS.warn).toBe('#d0a24c');
+	});
+
+	test('ascii glyphs draw the bar with # and -', () => {
+		const text = stripVTControlCharacters(contextLine(contextView({used: 500_000, base: 0}, 1_000_000), 40, GLYPHS.ascii));
+		expect(text).toContain('context 50% ###');
+		expect(text).toContain('---');
+	});
+
+	test('token counts', () => {
+		expect(formatTokens(950)).toBe('950');
+		expect(formatTokens(37_125)).toBe('37.1k');
+		expect(formatTokens(412_000)).toBe('412k');
+		expect(formatTokens(1_000_000)).toBe('1.0m');
 	});
 });
