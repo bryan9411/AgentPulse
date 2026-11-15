@@ -1,7 +1,21 @@
 import {describe, expect, test} from 'bun:test';
 import {DEFAULT_CONFIG} from '../src/config/config.ts';
 import * as A from '../src/state/actions.ts';
-import {projectKey, selectedRow, selectedSession, sessionKey, visibleRows, windowTooSmall} from '../src/state/selectors.ts';
+import {
+	filterActive,
+	isBlinking,
+	isViewing,
+	projectKey,
+	selectedRow,
+	selectedSession,
+	sessionKey,
+	sessionState,
+	statusCounts,
+	visibleRows,
+	windowTooSmall,
+} from '../src/state/selectors.ts';
+import type {SessionStatus} from '../src/services/status/machine.ts';
+import {width} from '../src/ui/text.ts';
 import {listHints} from '../src/ui/KeyHints.tsx';
 import type {AppState, SessionSummary} from '../src/state/types.ts';
 
@@ -143,8 +157,79 @@ describe('state', () => {
 		expect(listHints({focus: 'ai', dialog: null, row: 'session'})).toEqual(['ctrl+q back']);
 		expect(listHints({focus: 'list', dialog: null, row: 'session'}).join(' ')).toContain('enter type');
 		expect(listHints({focus: 'list', dialog: null, row: 'project'}).join(' ')).toContain('fold');
-		expect(listHints({focus: 'list', dialog: null, row: 'session'})).toHaveLength(3);
-		expect(listHints({focus: 'list', dialog: null, row: 'project'})).toHaveLength(3);
+		for (const filtered of [false, true]) {
+			expect(listHints({focus: 'list', dialog: null, row: 'session', filtered})).toHaveLength(4);
+			expect(listHints({focus: 'list', dialog: null, row: 'project', filtered})).toHaveLength(4);
+		}
+		expect(listHints({focus: 'list', dialog: null, row: 'session', editingFilter: true}).join(' ')).toContain('esc clear');
 		expect(listHints({focus: 'list', dialog: 'close-session', row: 'session'})).toEqual(['enter close · esc cancel']);
+		// The sidebar is 30 columns with one column of padding on each side.
+		for (const row of ['session', 'project'] as const) {
+			for (const filtered of [false, true]) {
+				for (const line of listHints({focus: 'list', dialog: null, row, filtered})) expect(width(line)).toBeLessThanOrEqual(28);
+			}
+		}
+	});
+});
+
+const status = (state: SessionStatus['state']): SessionStatus => ({state, screen: 'x', changedAt: 0, since: 0});
+
+describe('session status in state', () => {
+	test('glyph state falls back to the exit status before the first capture', () => {
+		const s = withSessions(A.initialState(config));
+		expect(sessionState(s, SESSIONS[0]!)).toBe('idle');
+		expect(sessionState(s, {...SESSIONS[0]!, dead: true, exitStatus: 0})).toBe('done');
+		expect(sessionState(s, {...SESSIONS[0]!, dead: true, exitStatus: 2})).toBe('error');
+		const next = A.applyStatuses(s, {a1: status('running')}, []);
+		expect(sessionState(next, SESSIONS[0]!)).toBe('running');
+		expect(statusCounts(next)).toMatchObject({running: 1, idle: 2});
+	});
+
+	test('an unchanged poll returns the same object so nothing redraws', () => {
+		const s = A.applyStatuses(withSessions(A.initialState(config)), {a1: status('idle')}, []);
+		expect(A.applyStatuses(s, {a1: status('idle')}, [])).toBe(s);
+	});
+
+	test('a session blinks after entering approval until it is viewed or answered', () => {
+		let s = withSessions(A.initialState(config));
+		s = A.applyStatuses(s, {a1: status('needs-approval'), a2: status('idle')}, ['a1']);
+		expect(s.attention).toEqual(['a1']);
+		expect(isBlinking(s, 'a1')).toBe(true);
+		// Looking at it in the AI pane stops the blink at once.
+		const viewing = A.setFocus(A.selectSession(s, 'a1'), 'ai', false);
+		expect(isViewing(viewing, 'a1')).toBe(true);
+		expect(isBlinking(viewing, 'a1')).toBe(false);
+		expect(A.applyStatuses(viewing, viewing.statuses, []).attention).toEqual([]);
+		// Answered elsewhere: no longer an alert state.
+		expect(A.applyStatuses(s, {a1: status('running'), a2: status('idle')}, []).attention).toEqual([]);
+	});
+
+	test('/ matches project, branch or AI; f keeps approval and error', () => {
+		let s = A.applyStatuses(withSessions(A.initialState(config)), {a1: status('needs-approval'), a2: status('running'), b1: status('error')}, []);
+		const keys = (st: AppState) => visibleRows(st).map(r => r.key);
+		s = A.startFilter(s);
+		s = A.editFilter(s, () => 'codex');
+		expect(keys(s)).toEqual(['p:/w/alpha', 's:a2']);
+		s = A.editFilter(s, () => 'BETA');
+		expect(keys(s)).toEqual(['p:/w/beta', 's:b1']);
+		s = A.endFilter(s);
+		expect(s.filter).toEqual({text: 'BETA', editing: false});
+		expect(filterActive(s)).toBe(true);
+		s = A.clearFilter(s);
+		expect(filterActive(s)).toBe(false);
+		s = A.toggleAttentionOnly(s);
+		expect(keys(s)).toEqual(['p:/w/alpha', 's:a1', 'p:/w/beta', 's:b1']);
+		s = A.startFilter(s);
+		s = A.editFilter(s, () => 'nothing');
+		expect(keys(s)).toEqual([]);
+		expect(s.selected).toBeNull();
+	});
+
+	test('under f a session that stops needing the user drops out and the cursor stays put', () => {
+		let s = A.applyStatuses(withSessions(A.initialState(config)), {a1: status('needs-approval'), a2: status('idle'), b1: status('error')}, []);
+		s = A.selectSession(A.toggleAttentionOnly(s), 'b1');
+		s = A.applyStatuses(s, {a1: status('needs-approval'), a2: status('idle'), b1: status('running')}, []);
+		expect(visibleRows(s).map(r => r.key)).toEqual(['p:/w/alpha', 's:a1']);
+		expect(s.selected).toBe('s:a1');
 	});
 });

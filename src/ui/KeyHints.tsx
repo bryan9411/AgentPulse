@@ -22,15 +22,19 @@ export type HintContext = {
 	focus: 'list' | 'ai';
 	dialog: Dialog['kind'] | null;
 	row: 'project' | 'session' | null;
+	editingFilter?: boolean;
+	filtered?: boolean;
 };
 
-// Every list variant is three lines so the list does not jump as the
-// cursor moves between group and session rows.
-export function listHints({focus, dialog, row}: HintContext): string[] {
+// Every list variant has the same number of lines so the list does not
+// jump as the cursor moves between group and session rows.
+export function listHints({focus, dialog, row, editingFilter, filtered}: HintContext): string[] {
 	if (dialog === 'add-project') return ['enter add · esc cancel'];
 	if (dialog === 'new-session') return ['↑↓ choose · enter start', 'esc cancel'];
 	if (dialog === 'close-session') return ['enter close · esc cancel'];
 	if (focus === 'ai') return ['ctrl+q back'];
-	if (row === 'session') return ['↑↓ move · enter type', 'z zoom · x close · n new', 'a add project · q quit'];
-	return ['↑↓ move · ←→ fold', 'n new session', 'a add project · q quit'];
+	if (editingFilter) return ['type to filter', 'enter done · esc clear'];
+	const filter = filtered ? '/ filter · f · esc clear' : '/ filter · f needs you';
+	if (row === 'session') return ['↑↓ move · enter type', 'z zoom · x close · n new', filter, 'a add project · q quit'];
+	return ['↑↓ move · ←→ fold', 'n new session', filter, 'a add project · q quit'];
 }

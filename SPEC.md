@@ -46,7 +46,7 @@
 ## 3. 畫面
 
 ```
- AgentPulse  5 sessions · ◐ 1 needs approval · ✕ 1 error        claude ●  codex ●  gemini ○
+ AgentPulse  5 sessions · ◐ 1 needs approval · ✕ 1 error        claude ●  codex ●  agy ○
 ────────────────────────┬───────────────────────────────────────────────────────────────────────
  Sessions               │ fix/login-bug · shop-api · codex                                ○ idle
  / filter               │ gpt-5-codex [high] · MCP github, postgres · skills 4 · AGENTS.md ✓
@@ -130,8 +130,9 @@
 | `x` | 關閉選中的工作階段（需確認） |
 | `d` | 檢視該工作階段資料夾的 `git diff` |
 | `o` | 用預設瀏覽器開啟偵測到的 `http://localhost:<port>` |
-| `/` | 輸入關鍵字篩選清單 |
+| `/` | 輸入關鍵字篩選清單，邊打邊篩；`enter` 保留關鍵字回到清單，`esc` 清除 |
 | `f` | 切換「只看需要處理的」（`◐` 與 `✕`） |
+| `esc` | 篩選中時清除關鍵字與 `f` |
 | `a` | 新增專案（輸入資料夾路徑） |
 | `?` | 按鍵說明 |
 | `q` | 離開 AgentPulse。所有 AI 繼續在背景執行 |
@@ -144,7 +145,7 @@
 
 ### 4.3 為什麼放大不用 `ctrl+e`
 
-`ctrl+e` 在 Claude Code、Codex、Gemini CLI 的輸入框裡都是「游標移到行尾」。若被 AgentPulse 攔走，AI 的輸入行為就和原版不同。所以放大改由清單上的 `z` 觸發，`ctrl+q` 還原，保留鍵維持只有一個。
+`ctrl+e` 在 Claude Code、Codex 的輸入框裡都是「游標移到行尾」（agy 未實測）。若被 AgentPulse 攔走，AI 的輸入行為就和原版不同。所以放大改由清單上的 `z` 觸發，`ctrl+q` 還原，保留鍵維持只有一個。
 
 ---
 
@@ -152,13 +153,13 @@
 
 ### 5.1 工作階段管理
 
-- 支援三種 AI：Claude Code（`claude`）、Codex CLI（`codex`）、Gemini CLI（`gemini`）。
+- 支援三種 AI：Claude Code（`claude`）、Codex CLI（`codex`）、Antigravity CLI（`agy`）。
 - 每個工作階段是專屬 tmux server 上的一個 session，名稱前綴 `agentpulse-`。
 - 建立時在 session 上寫入 metadata（tmux user option）：
 
 | Option | 內容 |
 |---|---|
-| `@ap-agent` | `claude` / `codex` / `gemini` |
+| `@ap-agent` | `claude` / `codex` / `agy` |
 | `@ap-project` | 專案主資料夾絕對路徑 |
 | `@ap-cwd` | 該工作階段的工作資料夾 |
 | `@ap-branch` | 建立當下的分支名稱 |
@@ -189,8 +190,12 @@
 1. 程序已結束：結束碼 0 為 `done`，非 0 為 `error`。
 2. 畫面出現錯誤樣式（認證失敗、API 錯誤、額度用盡等）：`error`。
 3. 畫面出現授權或選擇提示：`needs approval`。
-4. 畫面出現忙碌樣式，或最近 2 秒內畫面有變化：`running`。
+4. 畫面出現忙碌樣式：`running`。adapter 認不出畫面（`classify` 回傳 `null`）時，最近 2 秒內畫面有變化也視為 `running`。
 5. 其餘：若上一個狀態是 `running` 且此後使用者尚未在 AI 格看過它，為 `done`；否則為 `idle`。
+
+- 「畫面有變化」只在 adapter 認不出畫面時才算數。M3 實測 Claude Code 的閒置畫面會自己變化（使用者在輸入框打字、`/effort` 提示與額度提示出現或消失），若一律以變化判定，閒置中打字就會被標成 `running`，停手後又變成 `done`。
+- 「看過」指該工作階段正顯示在 AI 格且焦點在 AI 格。
+- 授權提示必須先於畫面變化判斷：Claude Code 等待授權時，畫面上的 `⏺` 會一明一暗地閃（M3 實測）。
 
 - 各家的樣式規則放在各自的 adapter，並以實際擷取的畫面做成測試案例。
 - 這是啟發式判斷，會有誤判；規則需隨各家 CLI 改版維護。
@@ -204,12 +209,16 @@
   - 不定時對所有 AI 送 `SIGCONT`：Claude Code 每收到一次就整個重畫（M0 實測）。
   - 不在外層包一層 shell：macOS 內建的 `/bin/sh` 在非互動模式下無法可靠地接手被暫停的程式（M0 實測兩種寫法都失敗）。
   - 暫停期間打的字會留在終端機的緩衝區，恢復後送進 AI 的輸入框。恢復通常在 1 秒內發生，影響有限。
-  - Claude Code 2.1.325 已實測。Codex、Gemini 未實測，`isSuspended` 先一律回傳 `false`。
+  - Claude Code 2.1.325 已實測。agy 1.5.9 也會因 `ctrl+z` 暫停，但不印任何訊息，只是輸入框下方的提示列整行消失、打的字直接印在框外；送 `SIGCONT` 後恢復，暫停期間打的字進入輸入框（M3 實測）。agy 以「輸入框下方沒有提示列」判定暫停。
+  - Codex 未實測，`isSuspended` 先一律回傳 `false`。
 
 ### 5.4 通知
 
 - 任一工作階段**進入** `needs approval` 或 `error` 時，發送 macOS 系統通知，並讓清單上該列的符號閃爍。
 - 進入 `idle`、`done` 不通知，只更新符號。
+- 符號閃爍到使用者在 AI 格看過該工作階段，或它離開 `needs approval`、`error` 為止。
+- AgentPulse 啟動後第一次讀到的狀態不算「進入」，不通知也不閃爍。
+- 通知標題為 `AgentPulse · <專案>`，內文為 `<分支> · <AI> needs your approval` 或 `stopped with an error`。
 - 同一工作階段同一狀態 30 秒內不重複通知。
 - 當下正顯示在 AI 格且焦點在 AI 格的工作階段不通知。
 - 通知以 `osascript` 發送，來源會顯示為「工序指令編寫程式」，需在系統設定允許其通知。
@@ -225,7 +234,7 @@
 | 3 | 分支 · 新增／刪除行數 · 累計執行時間 · 距上次畫面變化多久 · 本機 port |
 | 4 | Context 百分比、進度條、結構明細 |
 
-- **規範檔：** Claude Code 看 `CLAUDE.md`，Codex 看 `AGENTS.md`，Gemini 看 `GEMINI.md`。
+- **規範檔：** Claude Code 看 `CLAUDE.md`，Codex 看 `AGENTS.md`，agy 看 `GEMINI.md`（未實測；agy 執行檔內也出現 `AGENTS.md`，M4 確認）。
 - **增刪行數：** `git diff HEAD --shortstat`，另計未追蹤檔案數。
 - **本機 port：** `lsof` 列出監聽中的 TCP port，比對是否屬於該工作階段的程序樹；並輔以畫面上出現的 `localhost:<port>`。
 
@@ -244,7 +253,7 @@
 |---|---|
 | Claude Code | 環境變數 `ANTHROPIC_API_KEY`；或 `~/.claude.json` 內有 `oauthAccount` |
 | Codex | 環境變數 `OPENAI_API_KEY`；或 `~/.codex/auth.json` 存在 |
-| Gemini | 環境變數 `GEMINI_API_KEY`；或 `~/.gemini/oauth_creds.json` 存在 |
+| agy | 環境變數 `GEMINI_API_KEY`；或 `~/.gemini/oauth_creds.json` 存在（未實測：該檔在登入 agy 後出現） |
 
 - 只檢查「是否存在」，**不讀取、不記錄、不顯示**任何金鑰或 token 的值。
 - 認證失敗不另設燈號；畫面出現認證失敗字樣時，該工作階段依 5.3 變為 `error`。
@@ -253,7 +262,9 @@
 
 - 專案登錄在設定檔。在某個 git 儲存庫內啟動 AgentPulse 時，自動把該儲存庫加入。
 - 清單依專案分組，組內列出工作階段（分支名稱與 AI 名稱）。
-- `/` 以關鍵字比對專案名、分支名、AI 名稱。`f` 只顯示 `◐` 與 `✕`。
+- `/` 以關鍵字比對專案名、分支名、AI 名稱（不分大小寫）。`f` 只顯示 `◐` 與 `✕`。兩者可同時使用。
+- 篩選中沒有工作階段的專案群組隱藏；只有專案名稱符合關鍵字時保留該群組。沒有任何符合時清單顯示 `No matches`。
+- 清單標題下一行平時顯示 `/ filter` 提示，篩選時改為關鍵字與 `◐ ✕ only`。
 
 ### 5.9 Worktree
 
@@ -386,7 +397,7 @@ src/
     context/         用量估算與視窗對照
     accounts.ts  worktree.ts  conflictRadar.ts  ports.ts  tokens.ts
   agents/            每家 AI 一個 adapter
-    types.ts  claude.ts  codex.ts  gemini.ts
+    types.ts  claude.ts  codex.ts  agy.ts
   infra/             對外唯一出口
     exec.ts          Bun.spawn 包裝：逾時、併發上限、錯誤分類
     tmux.ts  git.ts  fsx.ts
@@ -404,7 +415,7 @@ src/
 ### 6.4 Adapter 介面
 
 ```ts
-type AgentId = 'claude' | 'codex' | 'gemini';
+type AgentId = 'claude' | 'codex' | 'agy';
 type AgentState = 'running' | 'needs-approval' | 'idle' | 'done' | 'error';
 
 interface AgentAdapter {
@@ -439,14 +450,14 @@ interface AgentAdapter {
 ```ts
 interface Platform {
   binDirs: string[];                       // PATH 找不到程式時依序嘗試的資料夾
-  notify(title: string, body: string): Promise<void>;
+  notify(title: string, body: string): Promise<boolean>;   // false：送出失敗，只記錄不中斷
   openUrl(url: string): Promise<void>;
   listeningPorts(): Promise<Array<{ pid: number; port: number }>>;
   processTree(): Promise<Array<{ pid: number; ppid: number; command: string }>>;
 }
 ```
 
-第一階段只實作 `darwin.ts`。`wsl.ts` 僅保留介面，呼叫時丟出「尚未支援」。`binDirs` 在 M1 加入：macOS 為 `/opt/homebrew/bin`、`/usr/local/bin`，讓 6.2 啟動流程第 1 步的備援路徑不寫死在平台模組以外。其餘方法隨 M3、M4 實作。
+第一階段只實作 `darwin.ts`。`wsl.ts` 僅保留介面，呼叫時丟出「尚未支援」。`binDirs` 在 M1 加入：macOS 為 `/opt/homebrew/bin`、`/usr/local/bin`、`~/.local/bin`（agy 與 Claude Code 原生安裝程式的位置），讓 6.2 啟動流程第 1 步的備援路徑不寫死在平台模組以外。其餘方法隨 M3、M4 實作。
 
 ### 6.6 輪詢排程
 
@@ -481,16 +492,16 @@ interface Platform {
 
 ### 6.8 各家資料來源
 
-| 項目 | Claude Code | Codex | Gemini |
+| 項目 | Claude Code | Codex | agy |
 |---|---|---|---|
-| 模型、思考檔位 | 工作階段記錄檔的 `message.model`、`effort` | `~/.codex/config.toml` | `~/.gemini/settings.json` |
+| 模型、思考檔位 | 工作階段記錄檔的 `message.model`、`effort` | `~/.codex/config.toml` | `~/.gemini/antigravity-cli/settings.json` |
 | Context 用量 | 記錄檔最後一筆 `message.usage` | 工作階段記錄檔 | 畫面底部狀態 |
-| MCP | `~/.claude.json`、專案 `.mcp.json` | `config.toml` 的 `mcp_servers` | `settings.json` 的 `mcpServers` |
-| Skills | `~/.claude/skills/`、專案 `.claude/skills/` | — | — |
-| 本機實測 | 記錄檔欄位已確認存在 | 未實測 | 已安裝 0.68.0，資料來源未實測 |
+| MCP | `~/.claude.json`、專案 `.mcp.json` | `config.toml` 的 `mcp_servers` | `~/.gemini/config/mcp_config.json` |
+| Skills | `~/.claude/skills/`、專案 `.claude/skills/` | — | `~/.gemini/config/skills/` |
+| 本機實測 | 記錄檔欄位已確認存在 | 未實測 | 已安裝 1.5.9；資料來源依執行檔內的路徑字串推得，未實測 |
 
 - Claude Code 記錄檔位置：`~/.claude/projects/<路徑代碼>/<sessionId>.jsonl`。啟動時指定 session id 以便精確對應（旗標待 M0 驗證）；無法指定時取該資料夾最新的記錄檔。
-- Codex 目前未安裝於開發機（使用者沒有訂閱），相關實作只能依官方文件撰寫，完成後需標示未實測，直到實機驗證。Gemini CLI 已於 2026-11-15 安裝，各項資料來源仍需實機確認。
+- Codex 目前未安裝於開發機（使用者沒有訂閱），相關實作只能依官方文件撰寫，完成後需標示未實測，直到實機驗證。agy（Antigravity CLI）1.5.9 已於 2026-11-15 安裝在 `~/.local/bin/agy`，各項資料來源仍需實機確認。
 
 ---
 
@@ -541,6 +552,8 @@ interface Platform {
 | （原始需求未涵蓋）AI 結束後的畫面 | 格子底部顯示結束碼與關閉方式，清單列 `✓`／`✕` | M0 發現使用者會用 `ctrl+c` 想離開，留下的畫面像卡住 |
 | （原始需求未涵蓋）關掉正在看的工作階段 | 工作階段 server 設 `detach-on-destroy off`；全部關完時 AI 格退回佔位文字 | 避免巢狀 client 結束後 AI 格空白或版面崩壞 |
 | 支援 Aider | 移除，只支援 Claude Code、Codex、Gemini CLI | 使用者決定，沒在使用；Aider 需另付 API 費用，後續階段不必為它維護狀態規則 |
+| 支援 Gemini CLI（`gemini`） | 改為 Antigravity CLI（`agy`） | 使用者 2026-11-15 移除 Gemini CLI，改裝 agy 1.5.9；兩者是不同程式，參數與設定資料夾都不同 |
+| （原始需求未涵蓋）以畫面變化判定執行中 | 只在 adapter 認不出畫面時採用 | M3 實測閒置畫面會因打字與提示文字而變化，一律採用會誤標 `running` 與 `done` |
 | 自動壓縮（Auto-Compact）與 `c` 鍵 | 移除，只保留 Context 用量顯示與警示色 | 使用者決定；避免主動對 AI 送字，且各家已有原生 `/compact`、`/clear` 或 skill |
 
 ---
@@ -569,5 +582,5 @@ M0 另外發現：
 其他已知風險：
 
 - **狀態誤判：** 畫面樣式隨各家 CLI 改版而變，需持續維護規則與測試案例。
-- **未實測：** Codex 未安裝，其 adapter 完成後仍屬未驗證。Gemini 已實測啟動，狀態偵測與資訊列欄位仍待實測。
+- **未實測：** Codex 未安裝，其 adapter 完成後仍屬未驗證。agy 的資訊列欄位仍待實測。
 - **合併操作：** 涉及使用者的 git 歷史，所有步驟必須先確認、失敗即還原。

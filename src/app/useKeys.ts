@@ -30,11 +30,26 @@ function dialogKey(store: Store<AppState>, controller: Controller, dialog: Dialo
 	}
 }
 
+// Typing goes to the `/` field and filters live; enter keeps the keyword.
+function filterKey(store: Store<AppState>, input: string, key: Key) {
+	if (key.escape) store.set(A.clearFilter);
+	else if (key.return) store.set(A.endFilter);
+	else if (key.backspace || key.delete) store.set(s => A.editFilter(s, v => [...v].slice(0, -1).join('')));
+	else if (!key.ctrl && !key.meta && input) {
+		const text = printable(input);
+		if (text) store.set(s => A.editFilter(s, v => v + text));
+	}
+}
+
 export function useKeys(store: Store<AppState>, controller: Controller) {
 	useInput((input, key) => {
 		const state = store.get();
 		if (state.dialog) {
 			dialogKey(store, controller, state.dialog, input, key);
+			return;
+		}
+		if (state.filter.editing) {
+			filterKey(store, input, key);
 			return;
 		}
 		if (input === 'q') {
@@ -56,5 +71,8 @@ export function useKeys(store: Store<AppState>, controller: Controller) {
 		} else if (input === 'n') controller.openNewSession();
 		else if (input === 'x') store.set(A.openCloseSession);
 		else if (input === 'a') store.set(A.openAddProject);
+		else if (input === '/') store.set(A.startFilter);
+		else if (input === 'f') store.set(A.toggleAttentionOnly);
+		else if (key.escape) store.set(s => (s.attentionOnly ? A.toggleAttentionOnly(A.clearFilter(s)) : A.clearFilter(s)));
 	});
 }

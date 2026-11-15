@@ -1,3 +1,4 @@
+import type {AgentState} from '../agents/types.ts';
 import type {GlyphMode} from '../config/config.ts';
 
 // SPEC 3.1. Nine tenths of the text uses only `text` and `dim`.
@@ -27,3 +28,19 @@ export const GLYPHS: Record<GlyphMode, Glyphs> = {
 	unicode: {running: '●', approval: '◐', idle: '○', done: '✓', error: '✕', expanded: '▾', collapsed: '▸'},
 	ascii: {running: '*', approval: '!', idle: 'o', done: '+', error: 'x', expanded: 'v', collapsed: '>'},
 };
+
+// Colour lives only on the glyph; idle and done stay in the text grey.
+export function stateGlyph(state: AgentState, glyphs: Glyphs): {glyph: string; color: string} {
+	switch (state) {
+		case 'running':
+			return {glyph: glyphs.running, color: COLORS.running};
+		case 'needs-approval':
+			return {glyph: glyphs.approval, color: COLORS.warn};
+		case 'error':
+			return {glyph: glyphs.error, color: COLORS.error};
+		case 'done':
+			return {glyph: glyphs.done, color: COLORS.text};
+		case 'idle':
+			return {glyph: glyphs.idle, color: COLORS.text};
+	}
+}

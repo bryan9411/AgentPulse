@@ -1,6 +1,7 @@
 import {basename} from 'node:path';
 import {DEFAULT_CONFIG, type Config} from '../config/config.ts';
-import {projectKey, selectedIndex, selectedRow, sessionKey, visibleRows} from './selectors.ts';
+import {ALERT_STATES, type SessionStatus} from '../services/status/machine.ts';
+import {isViewing, projectKey, selectedIndex, selectedRow, sessionKey, visibleRows} from './selectors.ts';
 import type {AgentOption, AppState, Project, SessionSummary} from './types.ts';
 
 export function initialState(config: Config = DEFAULT_CONFIG): AppState {
@@ -16,6 +17,11 @@ export function initialState(config: Config = DEFAULT_CONFIG): AppState {
 		zoomed: false,
 		window: null,
 		notice: null,
+		statuses: {},
+		attention: [],
+		blinkOn: true,
+		filter: {text: '', editing: false},
+		attentionOnly: false,
 	});
 }
 
@@ -164,4 +170,51 @@ export function setFocus(state: AppState, focus: AppState['focus'], zoomed: bool
 
 export function setNotice(state: AppState, notice: string | null): AppState {
 	return state.notice === notice ? state : {...state, notice};
+}
+
+function sameStatus(a: SessionStatus | undefined, b: SessionStatus): boolean {
+	return a !== undefined && a.state === b.state && a.screen === b.screen && a.changedAt === b.changedAt && a.since === b.since;
+}
+
+// `entered` lists sessions that just moved into needs-approval or error.
+// A session leaves `attention` once it is out of those states or viewed.
+export function applyStatuses(state: AppState, statuses: Record<string, SessionStatus>, entered: readonly string[]): AppState {
+	const ids = Object.keys(statuses);
+	const unchanged = ids.length === Object.keys(state.statuses).length && ids.every(id => sameStatus(state.statuses[id], statuses[id]!));
+	const attention = [...new Set([...state.attention, ...entered])].filter(id => {
+		const status = statuses[id];
+		return status !== undefined && ALERT_STATES.includes(status.state) && !isViewing(state, id);
+	});
+	const sameAttention = attention.length === state.attention.length && attention.every((id, i) => state.attention[i] === id);
+	if (unchanged && sameAttention) return state;
+	const next = {...state, statuses: unchanged ? state.statuses : statuses, attention};
+	// Under `f`, a session that stopped needing the user drops out of the list.
+	return state.attentionOnly ? withSelection(next, state) : next;
+}
+
+export function setBlink(state: AppState, on: boolean): AppState {
+	return state.blinkOn === on ? state : {...state, blinkOn: on};
+}
+
+export function startFilter(state: AppState): AppState {
+	return {...state, filter: {...state.filter, editing: true}};
+}
+
+export function editFilter(state: AppState, edit: (value: string) => string): AppState {
+	if (!state.filter.editing) return state;
+	return withSelection({...state, filter: {text: edit(state.filter.text), editing: true}}, state);
+}
+
+// enter keeps the keyword and goes back to moving through the list.
+export function endFilter(state: AppState): AppState {
+	return state.filter.editing ? {...state, filter: {...state.filter, editing: false}} : state;
+}
+
+export function clearFilter(state: AppState): AppState {
+	if (!state.filter.editing && state.filter.text === '') return state;
+	return withSelection({...state, filter: {text: '', editing: false}}, state);
+}
+
+export function toggleAttentionOnly(state: AppState): AppState {
+	return withSelection({...state, attentionOnly: !state.attentionOnly}, state);
 }

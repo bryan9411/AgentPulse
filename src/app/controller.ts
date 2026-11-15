@@ -1,15 +1,18 @@
+import {getAgent} from '../agents/index.ts';
 import {aiAttachCommand} from '../bootstrap/aiPane.ts';
 import {confPaths} from '../bootstrap/tmuxConf.ts';
 import {configFile, loadConfig} from '../config/config.ts';
 import {hudFrame, hudLines, topBarFormat, type HudInput} from '../hud/hud.ts';
 import {mtimeMs} from '../infra/fsx.ts';
 import {logError} from '../infra/log.ts';
-import {onRefreshSignal} from '../infra/signal.ts';
+import {platform} from '../infra/platform/index.ts';
+import {continueProcessGroup, onRefreshSignal} from '../infra/signal.ts';
 import type {Tmux} from '../infra/tmux.ts';
 import * as A from '../state/actions.ts';
-import {selectedRow, selectedSession, sessionCount, windowTooSmall} from '../state/selectors.ts';
+import {isViewing, selectedRow, selectedSession, sessionCount, statusCounts, windowTooSmall} from '../state/selectors.ts';
 import type {Store} from '../state/store.ts';
 import type {AppState, SessionSummary} from '../state/types.ts';
+import {GLYPHS} from '../ui/theme.ts';
 import {
 	clearLabel,
 	detachUi,
@@ -25,7 +28,10 @@ import {
 	type UiPanes,
 } from '../services/layout.ts';
 import {addProject} from '../services/projects.ts';
-import {agentChoices, closeSession, createSession, listSessions, reloadSessionConf} from '../services/sessions.ts';
+import {createScheduler, exclusive} from '../services/scheduler.ts';
+import {agentChoices, captureScreen, closeSession, createSession, listSessions, reloadSessionConf} from '../services/sessions.ts';
+import {enteredAlert, isStalled, nextStatus, type SessionStatus} from '../services/status/machine.ts';
+import {notificationText, resumeAllowed, shouldNotify, type NotifyLog} from '../services/status/notify.ts';
 
 export type Controller = {
 	submitDialog(): Promise<void>;
@@ -41,30 +47,29 @@ type Context = {store: Store<AppState>; ui: Tmux; agents: Tmux; configDir: strin
 const LAYOUT_POLL_MS = 1000;
 const CONFIG_POLL_MS = 2000;
 const SESSION_POLL_MS = 1000;
+const STATUS_POLL_MS = 1000;
+const BLINK_MS = 500;
 const PANE_DISCOVERY_MS = 200;
 
 function hudInput(state: AppState): HudInput {
 	const row = selectedRow(state);
 	const path = row?.kind === 'project' ? row.project.path : row?.kind === 'session' ? row.session.project : null;
 	const project = state.projects.find(p => p.path === path) ?? null;
-	return {tooSmall: windowTooSmall(state), project, session: selectedSession(state)};
-}
-
-// Wraps a poller so a slow round is skipped instead of stacking up.
-function exclusive(task: () => Promise<void>): () => Promise<void> {
-	let running = false;
-	return async () => {
-		if (running) return;
-		running = true;
-		try {
-			await task();
-		} catch (error) {
-			logError(`poll: ${String(error)}`);
-		} finally {
-			running = false;
-		}
+	const session = selectedSession(state);
+	const status = session ? state.statuses[session.id] : undefined;
+	return {
+		tooSmall: windowTooSmall(state),
+		glyphs: GLYPHS[state.config.glyphs],
+		project,
+		session: session && {
+			...session,
+			state: status?.state ?? null,
+			stalled: status ? isStalled(status, Date.now()) : false,
+		},
 	};
 }
+
+const reportError = (name: string, error: unknown) => logError(`${name}: ${String(error)}`);
 
 export function startController({store, ui, agents, configDir, pid}: Context): Controller {
 	const agentsConf = confPaths(configDir).agents;
@@ -75,7 +80,12 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 	let lastFrame = '';
 	let lastTopBar = '';
 	let configMtime = mtimeMs(configFile(configDir));
+	const scheduler = createScheduler(reportError);
 	const timers: Array<ReturnType<typeof setInterval>> = [];
+	// The pane process of each live session, for SIGCONT.
+	const pids = new Map<string, number>();
+	const resumeSent = new Map<string, number>();
+	const notified: NotifyLog = new Map();
 
 	const paintChrome = (force: boolean) => {
 		if (!panes || hudWidth <= 0) return;
@@ -85,7 +95,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 			if (paintHud(panes, frame)) lastFrame = frame;
 			else logError('hud: could not write to the HUD tty');
 		}
-		const topBar = topBarFormat({sessions: sessionCount(state)});
+		const topBar = topBarFormat({sessions: sessionCount(state), counts: statusCounts(state), glyphs: GLYPHS[state.config.glyphs]});
 		if (topBar !== lastTopBar) {
 			lastTopBar = topBar;
 			void setTopBar(ui, topBar).then(ok => {
@@ -106,11 +116,10 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		store.set(s => A.setFocus(A.setWindow(s, snap.windowWidth, snap.windowHeight), snap.sidebarActive ? 'list' : 'ai', snap.zoomed));
 		paintChrome(force || resized);
 	};
-	const pollLayout = exclusive(() => refreshLayout(false));
 	// A tmux hook fired: sizes or focus changed, so repaint even if the text is identical.
-	const forcedLayout = exclusive(() => refreshLayout(true));
+	const forcedLayout = exclusive('layout', () => refreshLayout(true), reportError);
 
-	const pollConfig = exclusive(async () => {
+	const pollConfig = async () => {
 		const mtime = mtimeMs(configFile(configDir));
 		if (mtime === configMtime) return;
 		configMtime = mtime;
@@ -120,7 +129,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 			return loaded.status === 'invalid' ? next : A.setConfig(next, loaded.config);
 		});
 		if (loaded.status === 'invalid') logError(loaded.error);
-	});
+	};
 
 	const refreshSessions = async () => {
 		const found = await listSessions(agents);
@@ -131,6 +140,8 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		const sessions: SessionSummary[] = found.map(({id, project, cwd, branch, agent, dead, exitStatus}) => ({
 			id, project, cwd, branch, agent, dead, exitStatus,
 		}));
+		pids.clear();
+		for (const record of found) if (!record.dead && record.pid) pids.set(record.id, record.pid);
 		const hadSessions = store.get().sessions.length > 0;
 		store.set(s => A.setSessions(s, sessions));
 		// The embedded client exits with the last session; drop its label too.
@@ -139,7 +150,77 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 			if (panes) await clearLabel(ui, panes);
 		}
 	};
-	const pollSessions = exclusive(() => syncAi(true).then(refreshSessions));
+
+	// SPEC 5.3: capture every live session, classify it, wake it if it
+	// stopped itself on ctrl+z, then notify on entering approval or error.
+	const observe = async (session: SessionSummary, now: number, seen: boolean, prev: SessionStatus | null) => {
+		if (session.dead) {
+			return nextStatus(prev, {dead: true, exitStatus: session.exitStatus, screenState: null, screen: null, now, seen});
+		}
+		const screen = await captureScreen(agents, session.id);
+		if (screen === null) return prev;
+		const adapter = getAgent(session.agent);
+		// Dead panes never get here: an exited Claude Code still shows its old
+		// suspend notice (M0).
+		if (adapter?.isSuspended(screen)) {
+			const pid = pids.get(session.id);
+			if (pid && resumeAllowed(resumeSent, session.id, now)) {
+				const how = continueProcessGroup(pid);
+				if (how === 'failed') logError(`resume: SIGCONT to ${session.id} (pid ${pid}) failed`);
+			}
+		}
+		return nextStatus(prev, {
+			dead: false,
+			exitStatus: null,
+			screenState: adapter?.classify(screen) ?? null,
+			screen: String(Bun.hash(screen)),
+			now,
+			seen,
+		});
+	};
+
+	const refreshStatuses = async () => {
+		const before = store.get();
+		const now = Date.now();
+		const results = await Promise.all(
+			before.sessions.map(async session => {
+				const prev = before.statuses[session.id] ?? null;
+				const next = await observe(session, now, isViewing(before, session.id), prev);
+				return {session, prev, next};
+			}),
+		);
+		const statuses: Record<string, SessionStatus> = {};
+		const entered: SessionSummary[] = [];
+		for (const {session, prev, next} of results) {
+			if (!next) continue;
+			statuses[session.id] = next;
+			if (enteredAlert(prev, next)) entered.push(session);
+		}
+		store.set(s => A.applyStatuses(s, statuses, entered.map(e => e.id)));
+		const state = store.get();
+		for (const session of entered) {
+			const status = statuses[session.id]!;
+			const ok = shouldNotify(notified, {
+				id: session.id,
+				state: status.state,
+				now,
+				viewing: isViewing(state, session.id),
+				enabled: state.config.notifications,
+			});
+			if (!ok) continue;
+			const project = state.projects.find(p => p.path === session.project)?.name ?? session.project;
+			const {title, body} = notificationText(session, project, status.state);
+			void platform.notify(title, body).then(sent => {
+				if (!sent) logError(`notify: osascript failed for ${session.id}`);
+			});
+		}
+	};
+
+	// Toggles only while something blinks, so an idle list is not redrawn.
+	const blink = () => {
+		const state = store.get();
+		store.set(s => A.setBlink(s, state.attention.length > 0 ? !state.blinkOn : true));
+	};
 
 	// Latest selection wins: a burst of j presses ends on the last row
 	// without queueing a switch for every row passed on the way.
@@ -193,9 +274,11 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		})().catch(error => logError(`discover: ${String(error)}`));
 	}, PANE_DISCOVERY_MS);
 	timers.push(discover);
-	timers.push(setInterval(() => void pollLayout(), LAYOUT_POLL_MS));
-	timers.push(setInterval(() => void pollConfig(), CONFIG_POLL_MS));
-	timers.push(setInterval(() => void pollSessions(), SESSION_POLL_MS));
+	scheduler.every(LAYOUT_POLL_MS, 'layout', () => refreshLayout(false));
+	scheduler.every(CONFIG_POLL_MS, 'config', pollConfig);
+	const pollSessions = scheduler.every(SESSION_POLL_MS, 'sessions', () => syncAi(true).then(refreshSessions));
+	scheduler.every(STATUS_POLL_MS, 'status', refreshStatuses);
+	timers.push(setInterval(blink, BLINK_MS));
 	void reloadSessionConf(agents, agentsConf).then(() => pollSessions());
 
 	const submitAddProject = async (value: string) => {
@@ -286,6 +369,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		},
 		stop() {
 			for (const timer of timers) clearInterval(timer);
+			scheduler.stop();
 			unsubscribe();
 			offSignal();
 		},

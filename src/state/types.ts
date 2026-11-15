@@ -1,4 +1,5 @@
 import type {Config} from '../config/config.ts';
+import type {SessionStatus} from '../services/status/machine.ts';
 
 export type Project = {path: string; name: string};
 
@@ -43,4 +44,14 @@ export type AppState = {
 	window: WindowSize | null;
 	// One line shown above the key hints, e.g. an invalid config file.
 	notice: string | null;
+	// SPEC 5.3, keyed by session id; missing until the first capture.
+	statuses: Record<string, SessionStatus>;
+	// Sessions whose glyph blinks: entered needs-approval or error and the
+	// user has not looked yet (SPEC 5.4).
+	attention: string[];
+	// Blink phase, toggled by a timer only while `attention` is non-empty.
+	blinkOn: boolean;
+	// SPEC 5.8: `/` keyword, `f` only sessions that need the user.
+	filter: {text: string; editing: boolean};
+	attentionOnly: boolean;
 };

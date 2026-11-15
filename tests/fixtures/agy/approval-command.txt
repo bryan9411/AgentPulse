@@ -1,0 +1,32 @@
+
+      ▄▀▀▄
+     ▀▀▀▀▀▀
+    ▀▀▀▀▀▀▀▀
+   ▄▀▀    ▀▀▄
+  ▄▀▀      ▀▀▄
+
+  Antigravity CLI 1.5.9
+  user0000@gmail.com (Google AI Pro)
+  Gemini 4 Hydrogen (Medium)
+  /private/tmp/claude-501/-Users-admin-Documents-agentpulse/b12fe880-ef0f-48e4-b75b-1483170ee365/scratchpad/gr
+
+────────────────────────────────────────────────────────────
+> Run the shell command: sleep 4 && echo hi > out.txt
+
+● Ran (sleep 4 && echo hi > out.txt) (ctrl+o to expand)
+
+Command
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+Requesting permission for:
+   sleep 4 && echo hi > out.txt
+
+Run this command?
+> 1. Yes, run command
+  2. Yes, and always allow in this conversation for commands that start with 'sleep 4 && echo hi > out.txt'
+  3. Yes, and always allow for commands that start with 'sleep 4 && echo hi > out.txt' (Persist to
+settings.json)
+  4. No, cancel
+
+  ↑/↓ Navigate · tab Amend · ctrl+g edit/expand command
+esc to cancel                                                                       Gemini 4 Hydrogen · medium

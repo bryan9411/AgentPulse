@@ -21,6 +21,8 @@ export type SessionRecord = SessionMeta & {
 	id: string;
 	dead: boolean;
 	exitStatus: number | null;
+	// The pane's process, i.e. the agent; 0 when unknown.
+	pid: number;
 };
 
 const FIELDS = [
@@ -33,6 +35,7 @@ const FIELDS = [
 	'#{@ap-branch}',
 	'#{@ap-worktree}',
 	'#{@ap-created}',
+	'#{pane_pid}',
 ] as const;
 const SEP = '\t';
 
@@ -50,7 +53,7 @@ export function metaOptions(meta: SessionMeta): Array<[string, string]> {
 // One line of `list-panes -a`. A session created by hand on our socket, or
 // one whose metadata is still being written, has no agent and is skipped.
 export function parseSessionLine(line: string): SessionRecord | null {
-	const [id, dead, status, agent, project, cwd, branch, worktree, created] = line.split(SEP);
+	const [id, dead, status, agent, project, cwd, branch, worktree, created, pid] = line.split(SEP);
 	if (!id?.startsWith(SESSION_PREFIX) || !agent || !project) return null;
 	const isDead = dead === '1';
 	const code = Number.parseInt(status ?? '', 10);
@@ -64,6 +67,7 @@ export function parseSessionLine(line: string): SessionRecord | null {
 		created: Number(created) || 0,
 		dead: isDead,
 		exitStatus: isDead && Number.isFinite(code) ? code : null,
+		pid: Number(pid) || 0,
 	};
 }
 
@@ -145,6 +149,13 @@ export async function createSession(tmux: Tmux, opts: CreateOptions): Promise<Cr
 	for (const [name, value] of metaOptions(meta)) args.push(';', 'set', '-t', `=${id}:`, name, value);
 	const result = await tmux.run(args);
 	return result.ok ? {ok: true, id} : {ok: false, error: result.message};
+}
+
+// The visible screen as plain text, for the adapter's classify (SPEC 5.3).
+// null when the capture failed, so the caller keeps the previous status.
+export async function captureScreen(tmux: Tmux, id: string): Promise<string | null> {
+	const result = await tmux.run(['capture-pane', '-p', '-t', `=${id}:`], {timeoutMs: 2000});
+	return result.ok ? result.stdout : null;
 }
 
 export async function closeSession(tmux: Tmux, id: string): Promise<boolean> {

@@ -1,0 +1,32 @@
+
+⏺ The command ran as written: it waited 4 seconds, then wrote hi to out.txt in the working directory. It
+  exited with no output, as expected.
+
+✻ Baked for 6s · done 3:41 PM
+
+❯ Use the Edit tool to change hello to hello world in notes.txt
+
+  Read 1 file
+
+⏺ Update(notes.txt)
+  ⎿  User rejected update to notes.txt
+      1 -hello
+      1 +hello world
+
+✻ Churned for 2s · done 3:42 PM
+
+❯ Use the AskUserQuestion tool to ask me one question: which color do I prefer, red or blue?
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Color
+
+Which color do you prefer, red or blue?
+
+❯ 1. Red
+     You prefer red.
+  2. Blue
+     You prefer blue.
+  3. Type something.
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

@@ -1,27 +1,28 @@
 import React from 'react';
 import {Text} from 'ink';
+import type {AgentState} from '../agents/types.ts';
 import type {SessionSummary} from '../state/types.ts';
 import type {Glyphs} from './theme.ts';
-import {COLORS} from './theme.ts';
+import {COLORS, stateGlyph} from './theme.ts';
 import {padEnd, width as cells} from './text.ts';
 
-type Props = {session: SessionSummary; selected: boolean; width: number; glyphs: Glyphs};
+type Props = {
+	session: SessionSummary;
+	state: AgentState;
+	// Off phase of a blinking glyph (SPEC 5.4): the cell is drawn blank.
+	hidden: boolean;
+	selected: boolean;
+	width: number;
+	glyphs: Glyphs;
+};
 
-// Live states (running, needs approval) arrive with M3; for now a session is
-// idle while its AI runs and done / error once it has exited (SPEC 5.3 step 1).
-function statusGlyph(session: SessionSummary, glyphs: Glyphs): {glyph: string; color: string} {
-	if (!session.dead) return {glyph: glyphs.idle, color: COLORS.text};
-	if (session.exitStatus === 0) return {glyph: glyphs.done, color: COLORS.text};
-	return {glyph: glyphs.error, color: COLORS.error};
-}
-
-export function SessionRow({session, selected, width, glyphs}: Props) {
+export function SessionRow({session, state, hidden, selected, width, glyphs}: Props) {
 	const agentText = ` ${session.agent}`;
 	const branchWidth = Math.max(0, width - 4 - cells(agentText));
-	const {glyph, color} = statusGlyph(session, glyphs);
+	const {glyph, color} = stateGlyph(state, glyphs);
 	return (
 		<Text backgroundColor={selected ? COLORS.selected : undefined}>
-			<Text color={color}>{`  ${glyph} `}</Text>
+			<Text color={color}>{`  ${hidden ? ' ' : glyph} `}</Text>
 			<Text color={session.dead ? COLORS.dim : COLORS.text}>{padEnd(session.branch, branchWidth)}</Text>
 			<Text color={COLORS.dim}>{agentText}</Text>
 		</Text>

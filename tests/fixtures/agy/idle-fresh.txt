@@ -1,0 +1,32 @@
+
+      ▄▀▀▄
+     ▀▀▀▀▀▀
+    ▀▀▀▀▀▀▀▀
+   ▄▀▀    ▀▀▄
+  ▄▀▀      ▀▀▄
+
+  Antigravity CLI 1.5.9
+  user0000@gmail.com (Google AI Pro)
+  Gemini 4 Hydrogen (Medium)
+  /private/tmp/claude-501/-Users-admin-Documents-agentpulse/b12fe880-ef0f-48e4-b75b-1483170ee365/scratchpad/gr
+
+
+ ┃ Auto is now the default agent mode
+ ┃ Press Shift+Tab to switch agent modes, or change Agent Mode in /config.
+ ┃ esc to dismiss
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+? for shortcuts                                                                     Gemini 4 Hydrogen · medium
+
+
+
+
+
+
+
+
+
+
+
+

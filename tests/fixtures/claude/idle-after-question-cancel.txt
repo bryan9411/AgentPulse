@@ -1,0 +1,32 @@
+
+❯ Use the Bash tool to run exactly: sleep 4 && echo hi > out.txt
+
+  Ran 1 shell command
+
+⏺ The command ran as written: it waited 4 seconds, then wrote hi to out.txt in the working directory. It
+  exited with no output, as expected.
+
+✻ Baked for 6s · done 3:41 PM
+
+❯ Use the Edit tool to change hello to hello world in notes.txt
+
+  Read 1 file
+
+⏺ Update(notes.txt)
+  ⎿  User rejected update to notes.txt
+      1 -hello
+      1 +hello world
+
+✻ Churned for 2s · done 3:42 PM
+
+❯ Use the AskUserQuestion tool to ask me one question: which color do I prefer, red or blue?
+
+⏺ User declined to answer questions
+  ⎿  · Which color do you prefer, red or blue? (Red / Blue)
+
+✻ Cooked for 1s · done 3:46 PM
+                                                                                          ◐ medium · /effort
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ? for shortcuts

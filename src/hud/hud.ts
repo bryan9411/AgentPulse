@@ -1,14 +1,48 @@
+import type {AgentState} from '../agents/types.ts';
 import {HUD_ROWS} from '../config/layout.ts';
-import {COLORS} from '../ui/theme.ts';
+import {COLORS, GLYPHS, stateGlyph, type Glyphs} from '../ui/theme.ts';
 import {padEnd, truncateStart, width as cells} from '../ui/text.ts';
 
-export type HudSession = {branch: string; agent: string; cwd: string; dead: boolean; exitStatus: number | null};
+export type HudSession = {
+	branch: string;
+	agent: string;
+	cwd: string;
+	dead: boolean;
+	exitStatus: number | null;
+	// null until the first capture.
+	state?: AgentState | null;
+	stalled?: boolean;
+};
 
 export type HudInput = {
 	tooSmall: boolean;
 	project: {name: string; path: string} | null;
 	session?: HudSession | null;
+	glyphs?: Glyphs;
 };
+
+export const STATE_LABELS: Record<AgentState, string> = {
+	running: 'running',
+	'needs-approval': 'needs approval',
+	idle: 'idle',
+	done: 'done',
+	error: 'error',
+};
+
+type Part = {text: string; color: string};
+
+// Right end of line 1 (SPEC 5.5). Only the glyph and warnings are coloured.
+function statusParts(se: HudSession, glyphs: Glyphs): Part[] {
+	if (se.dead) return [{text: `exited (${se.exitStatus ?? '?'})`, color: se.exitStatus === 0 ? COLORS.dim : COLORS.error}];
+	if (!se.state) return [];
+	const glyph = stateGlyph(se.state, glyphs);
+	const parts: Part[] = [
+		{text: glyph.glyph, color: glyph.color},
+		{text: ` ${STATE_LABELS[se.state]}`, color: COLORS.dim},
+	];
+	if (se.stalled) parts.push({text: ' · stalled?', color: COLORS.warn});
+	return parts;
+}
 
 const fg = (hex: string) => {
 	const n = Number.parseInt(hex.slice(1), 16);
@@ -29,12 +63,13 @@ export function hudLines(input: HudInput, size: number): string[] {
 	} else if (input.session && input.project) {
 		const se = input.session;
 		const left = `${se.branch} · ${input.project.name} · ${se.agent}`;
-		// Live states (running, needs approval) arrive with M3; only an exit is known now.
-		const right = se.dead ? `exited (${se.exitStatus ?? '?'})` : '';
-		const rightColor = se.dead && se.exitStatus !== 0 ? COLORS.error : COLORS.dim;
-		const shown = right && inner > cells(right) ? right : '';
-		const leftWidth = shown ? inner - cells(shown) - 1 : inner;
-		lines.push(` ${fg(COLORS.text)}${padEnd(left, leftWidth)}${shown ? ` ${fg(rightColor)}${shown}` : ''}${RESET}`);
+		const parts = statusParts(se, input.glyphs ?? GLYPHS.unicode);
+		const rightWidth = cells(parts.map(p => p.text).join(''));
+		// The status is dropped whole rather than cut when the pane is narrow.
+		const shown = rightWidth > 0 && inner > rightWidth;
+		const leftWidth = shown ? inner - rightWidth - 1 : inner;
+		const right = shown ? ` ${parts.map(p => `${fg(p.color)}${p.text}`).join('')}` : '';
+		lines.push(` ${fg(COLORS.text)}${padEnd(left, leftWidth)}${right}${RESET}`);
 		lines.push(` ${fg(COLORS.dim)}${padEnd(truncateStart(se.cwd, inner), inner)}${RESET}`);
 	} else if (!input.project) {
 		lines.push(` ${fg(COLORS.dim)}${padEnd('No project selected', inner)}${RESET}`);
@@ -55,9 +90,22 @@ export function hudFrame(lines: string[]): string {
 	return `\x1b[?25l\x1b[H${lines.map(line => `${line}\x1b[K`).join('\r\n')}\x1b[J`;
 }
 
-export type TopBarInput = {sessions: number};
+export type TopBarInput = {sessions: number; counts?: Record<AgentState, number>; glyphs?: Glyphs};
 
+// Only states worth a glance; idle is the rest.
+const TOP_BAR_STATES: readonly AgentState[] = ['needs-approval', 'error', 'running', 'done'];
+
+// tmux status format (SPEC 3, 6.2). Glyph and count take the state colour.
 export function topBarFormat(input: TopBarInput): string {
 	const noun = input.sessions === 1 ? 'session' : 'sessions';
-	return ` #[fg=${COLORS.text},bold]AgentPulse#[nobold,fg=${COLORS.dim}]  ${input.sessions} ${noun}`;
+	const glyphs = input.glyphs ?? GLYPHS.unicode;
+	const parts = [`${input.sessions} ${noun}`];
+	for (const state of TOP_BAR_STATES) {
+		const n = input.counts?.[state] ?? 0;
+		if (n === 0) continue;
+		const {glyph, color} = stateGlyph(state, glyphs);
+		const tint = color === COLORS.text ? COLORS.dim : color;
+		parts.push(`#[fg=${tint}]${glyph} ${n}#[fg=${COLORS.dim}] ${STATE_LABELS[state]}`);
+	}
+	return ` #[fg=${COLORS.text},bold]AgentPulse#[nobold,fg=${COLORS.dim}]  ${parts.join(' · ')}`;
 }
