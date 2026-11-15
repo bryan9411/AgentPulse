@@ -15,6 +15,8 @@ export type SessionMeta = {
 	branch: string;
 	worktree: boolean;
 	created: number;
+	// The agent's own conversation id when we chose it (SPEC 5.1); '' otherwise.
+	agentSession: string;
 };
 
 export type SessionRecord = SessionMeta & {
@@ -36,6 +38,7 @@ const FIELDS = [
 	'#{@ap-worktree}',
 	'#{@ap-created}',
 	'#{pane_pid}',
+	'#{@ap-agent-session}',
 ] as const;
 const SEP = '\t';
 
@@ -47,13 +50,14 @@ export function metaOptions(meta: SessionMeta): Array<[string, string]> {
 		['@ap-branch', meta.branch],
 		['@ap-worktree', meta.worktree ? '1' : '0'],
 		['@ap-created', String(meta.created)],
+		['@ap-agent-session', meta.agentSession],
 	];
 }
 
 // One line of `list-panes -a`. A session created by hand on our socket, or
 // one whose metadata is still being written, has no agent and is skipped.
 export function parseSessionLine(line: string): SessionRecord | null {
-	const [id, dead, status, agent, project, cwd, branch, worktree, created, pid] = line.split(SEP);
+	const [id, dead, status, agent, project, cwd, branch, worktree, created, pid, agentSession] = line.split(SEP);
 	if (!id?.startsWith(SESSION_PREFIX) || !agent || !project) return null;
 	const isDead = dead === '1';
 	const code = Number.parseInt(status ?? '', 10);
@@ -68,6 +72,7 @@ export function parseSessionLine(line: string): SessionRecord | null {
 		dead: isDead,
 		exitStatus: isDead && Number.isFinite(code) ? code : null,
 		pid: Number(pid) || 0,
+		agentSession: agentSession ?? '',
 	};
 }
 
@@ -121,11 +126,12 @@ export type CreateResult = {ok: true; id: string} | {ok: false; error: string};
 export async function createSession(tmux: Tmux, opts: CreateOptions): Promise<CreateResult> {
 	const adapter = getAgent(opts.agent);
 	if (!adapter) return {ok: false, error: `Unknown AI: ${opts.agent}`};
+	const agentSession = adapter.pinsSessionId ? crypto.randomUUID() : '';
 	let command = opts.command;
 	if (!command) {
 		const bin = resolveBin(adapter.binary, platform.binDirs);
 		if (!bin) return {ok: false, error: `${adapter.binary} not found on PATH`};
-		const [, ...args] = adapter.launchCommand({cwd: opts.cwd});
+		const [, ...args] = adapter.launchCommand({cwd: opts.cwd, sessionId: agentSession || null});
 		command = [bin, ...args];
 	}
 	const id = newSessionId();
@@ -136,6 +142,7 @@ export async function createSession(tmux: Tmux, opts: CreateOptions): Promise<Cr
 		branch: (await currentBranch(opts.cwd)) ?? 'HEAD',
 		worktree: opts.worktree ?? false,
 		created: Math.floor(Date.now() / 1000),
+		agentSession,
 	};
 	// Metadata goes in the same tmux invocation as the session so a poll can
 	// never see the session without it. -f only takes effect when this call

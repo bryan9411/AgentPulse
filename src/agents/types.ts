@@ -1,3 +1,7 @@
+import type {HostFs} from '../infra/fsx.ts';
+
+export type {HostFs} from '../infra/fsx.ts';
+
 export type AgentId = 'claude' | 'codex' | 'agy';
 
 export type AgentState = 'running' | 'needs-approval' | 'idle' | 'done' | 'error';
@@ -6,15 +10,23 @@ export type AgentState = 'running' | 'needs-approval' | 'idle' | 'done' | 'error
 // the user looked since), so the status machine decides it, not the adapter.
 export type ScreenState = Exclude<AgentState, 'done'>;
 
-// SPEC 6.4. The HUD data sources join this interface in M4–M5.
+export type AccountStatus = 'signed-in' | 'not-set';
+
+// null: not found; the HUD shows —.
+export type SessionInfo = {model: string | null; effort: string | null};
+
+// SPEC 6.4. Context usage joins sessionInfo in M5.
 export type AgentAdapter = {
 	id: AgentId;
 	displayName: string;
-	rulesFile: string | null;
+	// Relative to the working folder; the first one is the name shown when none exists.
+	rulesFiles: readonly string[];
 	// The program looked up on PATH (and platform.binDirs) before launching.
 	binary: string;
+	// The agent accepts a conversation id chosen by us, so its log can be found.
+	pinsSessionId: boolean;
 	// argv[0] is the bare binary name; the caller swaps in the resolved path.
-	launchCommand(opts: {cwd: string}): string[];
+	launchCommand(opts: {cwd: string; sessionId: string | null}): string[];
 	// Recognises the agent in a process listing (external sessions, ports).
 	matchProcess(commandLine: string): boolean;
 	// null: the screen is not one the adapter recognises; the caller then
@@ -22,4 +34,10 @@ export type AgentAdapter = {
 	classify(screen: string): ScreenState | null;
 	// The agent stopped itself after ctrl+z and waits for SIGCONT (SPEC 5.3).
 	isSuspended(screen: string): boolean;
+	// SPEC 5.7: presence only; never read or keep a credential's value.
+	// null: not checked for this agent; left out of the top bar.
+	accountStatus(fs: HostFs): AccountStatus | null;
+	mcpServers(fs: HostFs, cwd: string): string[] | null;
+	skillsCount(fs: HostFs, cwd: string): number | null;
+	sessionInfo(fs: HostFs, ctx: {cwd: string; sessionId: string | null}): SessionInfo;
 };

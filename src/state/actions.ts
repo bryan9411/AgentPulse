@@ -2,6 +2,8 @@ import {basename} from 'node:path';
 import {DEFAULT_CONFIG, type Config} from '../config/config.ts';
 import {ALERT_STATES, type SessionStatus} from '../services/status/machine.ts';
 import {isViewing, projectKey, selectedIndex, selectedRow, sessionKey, visibleRows} from './selectors.ts';
+import type {AccountMark} from '../services/accounts.ts';
+import type {SessionDetails} from '../services/details.ts';
 import type {AgentOption, AppState, Project, SessionSummary} from './types.ts';
 
 export function initialState(config: Config = DEFAULT_CONFIG): AppState {
@@ -22,6 +24,8 @@ export function initialState(config: Config = DEFAULT_CONFIG): AppState {
 		blinkOn: true,
 		filter: {text: '', editing: false},
 		attentionOnly: false,
+		details: {},
+		accounts: [],
 	});
 }
 
@@ -53,8 +57,10 @@ function sameSessions(a: readonly SessionSummary[], b: readonly SessionSummary[]
 
 export function setSessions(state: AppState, sessions: SessionSummary[]): AppState {
 	if (state.sessionsLoaded && sameSessions(state.sessions, sessions)) return state;
+	// Details of closed sessions are dropped with them.
+	const details = Object.fromEntries(Object.entries(state.details).filter(([id]) => sessions.some(s => s.id === id)));
 	const next = withSelection(
-		{...state, sessions, sessionsLoaded: true, projects: toProjects(state.config.projects, sessions)},
+		{...state, sessions, details, sessionsLoaded: true, projects: toProjects(state.config.projects, sessions)},
 		state,
 	);
 	// After a restart, land on a running AI rather than on a group header.
@@ -217,4 +223,18 @@ export function clearFilter(state: AppState): AppState {
 
 export function toggleAttentionOnly(state: AppState): AppState {
 	return withSelection({...state, attentionOnly: !state.attentionOnly}, state);
+}
+
+// Pollers fill in one part at a time; an identical result changes nothing,
+// so the HUD is not repainted for it.
+export function setDetails(state: AppState, id: string, patch: Partial<SessionDetails>): AppState {
+	if (!state.sessions.some(s => s.id === id)) return state;
+	const before = state.details[id] ?? {};
+	const after = {...before, ...patch};
+	if (JSON.stringify(before) === JSON.stringify(after)) return state;
+	return {...state, details: {...state.details, [id]: after}};
+}
+
+export function setAccounts(state: AppState, accounts: AccountMark[]): AppState {
+	return JSON.stringify(state.accounts) === JSON.stringify(accounts) ? state : {...state, accounts};
 }

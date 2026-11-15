@@ -4,7 +4,7 @@ import {AGENTS, getAgent} from '../src/agents/index.ts';
 describe('agent adapters', () => {
 	test('all three are registered with a launch command', () => {
 		expect(AGENTS.map(a => a.id)).toEqual(['claude', 'codex', 'agy']);
-		for (const agent of AGENTS) expect(agent.launchCommand({cwd: '/tmp'})[0]).toBe(agent.binary);
+		for (const agent of AGENTS) expect(agent.launchCommand({cwd: '/tmp', sessionId: null})[0]).toBe(agent.binary);
 		expect(getAgent('nope')).toBeNull();
 	});
 

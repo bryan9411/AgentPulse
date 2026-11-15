@@ -25,3 +25,26 @@ export async function currentBranch(dir: string): Promise<string | null> {
 	const result = await git(dir, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
 	return result.ok ? result.stdout.trim() : null;
 }
+
+export type GitStats = {branch: string | null; added: number; removed: number; untracked: number};
+
+// "3 files changed, 10 insertions(+), 2 deletions(-)"; empty when nothing changed.
+export function parseShortstat(text: string): {added: number; removed: number} {
+	const added = /(\d+) insertions?\(\+\)/.exec(text);
+	const removed = /(\d+) deletions?\(-\)/.exec(text);
+	return {added: Number(added?.[1] ?? 0), removed: Number(removed?.[1] ?? 0)};
+}
+
+// SPEC 5.5 line 3. null when the folder is not a usable repository.
+export async function gitStats(dir: string): Promise<GitStats | null> {
+	const [branch, diff, untracked] = await Promise.all([
+		currentBranch(dir),
+		git(dir, ['diff', 'HEAD', '--shortstat']),
+		git(dir, ['ls-files', '--others', '--exclude-standard', '-z']),
+	]);
+	if (!untracked.ok) return null;
+	// A repository without commits has no HEAD to diff against.
+	const counts = diff.ok ? parseShortstat(diff.stdout) : {added: 0, removed: 0};
+	const files = untracked.stdout.split('\0').filter(Boolean).length;
+	return {branch, ...counts, untracked: files};
+}

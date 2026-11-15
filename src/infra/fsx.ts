@@ -1,4 +1,4 @@
-import {closeSync, mkdirSync, openSync, readFileSync, renameSync, statSync, writeFileSync, writeSync} from 'node:fs';
+import {closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, statSync, writeFileSync, writeSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {dirname, isAbsolute, join, resolve} from 'node:path';
 
@@ -60,4 +60,55 @@ export function writeToTty(ttyPath: string, data: string): boolean {
 	} catch {
 		return false;
 	}
+}
+
+// Read-only file access handed to the agent adapters (SPEC 6.4), so they
+// never import infra and tests can feed them fake files.
+export type HostFs = {
+	home: string;
+	env(name: string): string | undefined;
+	exists(path: string): boolean;
+	readText(path: string): string | null;
+	// The last `bytes` of a file; logs can grow to many megabytes.
+	readTail(path: string, bytes: number): string | null;
+	// Entry names; [] when the folder is missing.
+	listDir(path: string): string[];
+	mtimeMs(path: string): number | null;
+};
+
+export function readTail(path: string, bytes: number): string | null {
+	try {
+		const fd = openSync(path, 'r');
+		try {
+			const size = fstatSync(fd).size;
+			const length = Math.min(size, bytes);
+			const buf = Buffer.alloc(length);
+			readSync(fd, buf, 0, length, size - length);
+			return buf.toString('utf8');
+		} finally {
+			closeSync(fd);
+		}
+	} catch {
+		return null;
+	}
+}
+
+export function listDir(path: string): string[] {
+	try {
+		return readdirSync(path);
+	} catch {
+		return [];
+	}
+}
+
+export function hostFs(home = homedir(), env: Record<string, string | undefined> = process.env): HostFs {
+	return {
+		home,
+		env: name => env[name],
+		exists: path => existsSync(path),
+		readText,
+		readTail,
+		listDir,
+		mtimeMs,
+	};
 }

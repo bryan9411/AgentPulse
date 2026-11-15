@@ -46,6 +46,8 @@ describe('sessions', () => {
 			exitStatus: null,
 		});
 		expect(await tmux.out(['show', '-v', '-t', `=${created.id}:`, '@ap-agent'])).toBe('claude');
+		// Claude Code gets a conversation id we chose, so its log can be found.
+		expect(sessions?.[0]?.agentSession).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
 		expect(await closeSession(tmux, created.id)).toBe(true);
 		expect(await listSessions(tmux)).toEqual([]);
 	});

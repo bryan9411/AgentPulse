@@ -21,7 +21,7 @@ import type {AppState, SessionSummary} from '../src/state/types.ts';
 
 const config = {...DEFAULT_CONFIG, projects: ['/w/alpha', '/w/beta']};
 const session = (id: string, project: string, branch: string, agent = 'claude'): SessionSummary => ({
-	id, project, cwd: project, branch, agent, dead: false, exitStatus: null,
+	id, project, cwd: project, branch, agent, dead: false, exitStatus: null, created: 0, agentSession: '',
 });
 const SESSIONS = [
 	session('a1', '/w/alpha', 'main'),

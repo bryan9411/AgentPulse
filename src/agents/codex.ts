@@ -19,11 +19,18 @@ function classify(screen: string): ScreenState | null {
 export const codex: AgentAdapter = {
 	id: 'codex',
 	displayName: 'Codex CLI',
-	rulesFile: 'AGENTS.md',
+	rulesFiles: ['AGENTS.md'],
 	binary: 'codex',
+	pinsSessionId: false,
 	launchCommand: () => ['codex'],
 	matchProcess: line => commandHasProgram(line, ['codex']),
 	classify,
 	// Not tested: whether Codex stops itself on ctrl+z is unknown.
 	isSuspended: () => false,
+	// Deferred until the user has a Codex account (2026-11-15): no data
+	// sources yet, so the HUD shows — and the top bar leaves codex out.
+	accountStatus: () => null,
+	mcpServers: () => null,
+	skillsCount: () => null,
+	sessionInfo: () => ({model: null, effort: null}),
 };

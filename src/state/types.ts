@@ -1,4 +1,6 @@
 import type {Config} from '../config/config.ts';
+import type {AccountMark} from '../services/accounts.ts';
+import type {SessionDetails} from '../services/details.ts';
 import type {SessionStatus} from '../services/status/machine.ts';
 
 export type Project = {path: string; name: string};
@@ -12,6 +14,10 @@ export type SessionSummary = {
 	agent: string;
 	dead: boolean;
 	exitStatus: number | null;
+	// Epoch seconds (@ap-created).
+	created: number;
+	// The agent's own conversation id; '' when not pinned.
+	agentSession: string;
 };
 
 export type Row =
@@ -54,4 +60,8 @@ export type AppState = {
 	// SPEC 5.8: `/` keyword, `f` only sessions that need the user.
 	filter: {text: string; editing: boolean};
 	attentionOnly: boolean;
+	// SPEC 5.5, keyed by session id; filled by the HUD pollers.
+	details: Record<string, SessionDetails>;
+	// SPEC 5.7; empty until the first check.
+	accounts: AccountMark[];
 };

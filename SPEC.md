@@ -165,6 +165,7 @@
 | `@ap-branch` | 建立當下的分支名稱 |
 | `@ap-worktree` | 是否為 AgentPulse 建立的 worktree（`1` / `0`） |
 | `@ap-created` | 建立時間（epoch 秒） |
+| `@ap-agent-session` | AI 自己的對話 id，用來找記錄檔（Claude Code 以 `--session-id` 指定；不支援指定的 AI 留空） |
 
 - AgentPulse 關閉後工作階段繼續執行；重新開啟時由 tmux 讀回所有 `agentpulse-` session 及其 metadata，不另存狀態檔。
 - AI 程序結束後保留該格（`remain-on-exit`），以便讀取結束碼；由使用者按 `x` 關閉。
@@ -231,12 +232,25 @@
 |---|---|
 | 1 | 分支 · 專案 · AI 名稱；右側為狀態 |
 | 2 | 模型與思考檔位 · MCP 伺服器名稱 · Skills 數量 · 規範檔是否存在 |
-| 3 | 分支 · 新增／刪除行數 · 累計執行時間 · 距上次畫面變化多久 · 本機 port |
-| 4 | Context 百分比、進度條、結構明細 |
+| 3 | 分支 · 新增／刪除行數 · 未追蹤檔案數 · 累計執行時間 · 距上次畫面變化多久 · 本機 port |
+| 4 | Context 百分比、進度條、結構明細（M5 之前顯示工作資料夾） |
 
-- **規範檔：** Claude Code 看 `CLAUDE.md`，Codex 看 `AGENTS.md`，agy 看 `GEMINI.md`（未實測；agy 執行檔內也出現 `AGENTS.md`，M4 確認）。
-- **增刪行數：** `git diff HEAD --shortstat`，另計未追蹤檔案數。
-- **本機 port：** `lsof` 列出監聽中的 TCP port，比對是否屬於該工作階段的程序樹；並輔以畫面上出現的 `localhost:<port>`。
+範例：
+
+```
+ claude-opus-5-5 [medium] · MCP github, postgres · skills 4 · CLAUDE.md ✓
+ fix/login-bug · +128 -34 · 2 untracked · up 42m · output 3s ago · :3000 :5173
+```
+
+- **寬度不足時的截斷順序：** 每行由數個欄位組成，各有優先順序。放不下時從最不重要的欄位開始處理：可縮短的欄位（模型、MCP 名單、分支）先縮短並以 `…` 結尾，縮到下限仍放不下就整個拿掉；其他欄位直接拿掉。最後剩下的一個欄位直接截斷。
+  - 第 2 行由不重要到重要：Skills、規範檔、MCP、模型。
+  - 第 3 行由不重要到重要：未追蹤檔案數、累計執行時間、距上次畫面變化、port、增刪行數、分支。
+- **規範檔：** 在工作資料夾找下列檔案，找到就顯示該檔名加 `✓`，都沒有則顯示 `no <第一個檔名>`。Claude Code：`CLAUDE.md`、`.claude/CLAUDE.md`；Codex：`AGENTS.md`；agy：`GEMINI.md`、`AGENTS.md`（agy 1.5.9 執行檔內的說明文字確認兩者都會讀）。
+- **MCP：** 只列設定檔中的伺服器名稱；沒有設定時顯示 `MCP none`。Claude Code 的 claude.ai 連接器要連網才查得到，不列入。
+- **增刪行數：** `git diff HEAD --shortstat`，另計未追蹤檔案數（`git ls-files --others --exclude-standard`）。沒有任何修改時顯示 `clean`。第 3 行的分支即時由 git 讀取，可能與第 1 行建立當下的分支不同。
+- **累計執行時間：** 自 `@ap-created` 起算。**距上次畫面變化：** 取自 5.3 狀態機的畫面變化時間。
+- **本機 port：** `lsof` 列出監聽中的 TCP port，符合任一條件就列入（任何工作階段的 AI 程序本身開的 port 都不列）：屬於該工作階段 AI 程序的子孫程序；該程序的工作資料夾在工作階段資料夾內（M4 實測：以 `&` 放到背景的 dev server 在 shell 結束後父程序變成 1，程序樹比對不到）；畫面上出現 `localhost:<port>` 且該 port 確實在監聽。
+- 符號 `⎇`、`−` 屬寬度不明確字元，不使用；減號用 ASCII `-`。
 
 ### 5.6 Context 用量顯示
 
@@ -253,9 +267,10 @@
 |---|---|
 | Claude Code | 環境變數 `ANTHROPIC_API_KEY`；或 `~/.claude.json` 內有 `oauthAccount` |
 | Codex | 環境變數 `OPENAI_API_KEY`；或 `~/.codex/auth.json` 存在 |
-| agy | 環境變數 `GEMINI_API_KEY`；或 `~/.gemini/oauth_creds.json` 存在（未實測：該檔在登入 agy 後出現） |
+| agy | 環境變數 `GEMINI_API_KEY`；或 `~/.gemini/oauth_creds.json` 存在（開發機登入 agy 後確認該檔存在） |
 
-- 只檢查「是否存在」，**不讀取、不記錄、不顯示**任何金鑰或 token 的值。
+- 只檢查「是否存在」，**不讀取、不記錄、不顯示**任何金鑰或 token 的值。`~/.claude.json` 需解析成物件才能判斷 `oauthAccount` 這個鍵是否存在，解析結果只用來判斷，不保留、不記錄。
+- 頂列右側依 Claude Code、Codex、agy 的順序顯示，例如 `claude ●  codex ○  agy ●`。符號用主要文字色，不另上色。
 - 認證失敗不另設燈號；畫面出現認證失敗字樣時，該工作階段依 5.3 變為 `error`。
 
 ### 5.8 專案清單、搜尋、篩選
@@ -421,29 +436,34 @@ type AgentState = 'running' | 'needs-approval' | 'idle' | 'done' | 'error';
 interface AgentAdapter {
   id: AgentId;
   displayName: string;
-  rulesFile: string | null;               // CLAUDE.md / AGENTS.md / GEMINI.md
+  rulesFiles: string[];                   // 相對於工作資料夾，第一個是顯示名稱，見 5.5
   binary: string;                         // 啟動前在 PATH 與 platform.binDirs 尋找
+  pinsSessionId: boolean;                 // 能否在啟動時指定 AI 自己的對話 id
 
-  launchCommand(opts: { cwd: string }): string[];
+  launchCommand(opts: { cwd: string; sessionId: string | null }): string[];
   matchProcess(commandLine: string): boolean;        // 辨識外部工作階段
   classify(screen: string): Exclude<AgentState, 'done'> | null;
   isSuspended(screen: string): boolean;              // 畫面停在暫停訊息，見 5.3
 
-  accountStatus(): Promise<'signed-in' | 'not-set'>;
-  mcpServers(cwd: string): Promise<string[]>;
-  skillsCount(cwd: string): Promise<number>;
-  sessionInfo(ctx: { cwd: string; sessionId?: string }): Promise<{
-    model?: string;
-    effort?: string;
-    context?: { used: number; window: number; baseline: number };
-    tokens?: { input: number; output: number };
-  }>;
+  // 以下由呼叫端傳入唯讀的檔案存取介面 HostFs（家目錄、環境變數、檔案是否存在、
+  // 讀文字、讀檔尾、列資料夾、修改時間）；查不到回傳 null，介面顯示 `—`。
+  accountStatus(fs: HostFs): 'signed-in' | 'not-set';
+  mcpServers(fs: HostFs, cwd: string): string[] | null;
+  skillsCount(fs: HostFs, cwd: string): number | null;
+  sessionInfo(fs: HostFs, ctx: { cwd: string; sessionId: string | null }): {
+    model: string | null;
+    effort: string | null;
+    // M5 加入 context、tokens
+  };
 }
 ```
 
+- 資料方法改為同步並接收 `HostFs`：adapter 不直接匯入 `infra/`，測試可用假的檔案內容；讀的都是小檔案或記錄檔的檔尾，同步讀取不會卡住介面。
+- 規範檔是否存在由 `services/` 依 `rulesFiles` 統一檢查，不需各家實作。
+
 新增一家 AI 只需要新增一個 adapter 檔並註冊，其他模組不改。
 
-各方法隨階段加入：M2 只有 `id`、`displayName`、`rulesFile`、`binary`、`launchCommand`、`matchProcess`。`launchCommand` 回傳的第一個元素是程式名稱，實際啟動時換成找到的絕對路徑；找不到時新增對話框標示 `not installed`，不建立工作階段。
+各方法隨階段加入：M2 只有 `id`、`displayName`、`rulesFile`、`binary`、`launchCommand`、`matchProcess`；M3 加入 `classify`、`isSuspended`；M4 加入資料方法、`pinsSessionId`，`rulesFile` 改為 `rulesFiles`。`launchCommand` 回傳的第一個元素是程式名稱，實際啟動時換成找到的絕對路徑；找不到時新增對話框標示 `not installed`，不建立工作階段。
 
 ### 6.5 Platform 介面
 
@@ -454,10 +474,11 @@ interface Platform {
   openUrl(url: string): Promise<void>;
   listeningPorts(): Promise<Array<{ pid: number; port: number }>>;
   processTree(): Promise<Array<{ pid: number; ppid: number; command: string }>>;
+  processCwds(pids: number[]): Promise<Map<number, string>>;   // M4 追加，見 5.5 本機 port
 }
 ```
 
-第一階段只實作 `darwin.ts`。`wsl.ts` 僅保留介面，呼叫時丟出「尚未支援」。`binDirs` 在 M1 加入：macOS 為 `/opt/homebrew/bin`、`/usr/local/bin`、`~/.local/bin`（agy 與 Claude Code 原生安裝程式的位置），讓 6.2 啟動流程第 1 步的備援路徑不寫死在平台模組以外。其餘方法隨 M3、M4 實作。
+第一階段只實作 `darwin.ts`。`wsl.ts` 僅保留介面，呼叫時丟出「尚未支援」。`binDirs` 在 M1 加入：macOS 為 `/opt/homebrew/bin`、`/usr/local/bin`、`~/.local/bin`（agy 與 Claude Code 原生安裝程式的位置），讓 6.2 啟動流程第 1 步的備援路徑不寫死在平台模組以外。`notify` 於 M3、`listeningPorts`（`lsof -nP -iTCP -sTCP:LISTEN -Fpn`）與 `processTree`（`ps -axo pid=,ppid=,command=`）、`processCwds`（`lsof -a -d cwd -p <pids> -Fpn`）於 M4 實作，`openUrl` 於 M6。
 
 ### 6.6 輪詢排程
 
@@ -494,14 +515,17 @@ interface Platform {
 
 | 項目 | Claude Code | Codex | agy |
 |---|---|---|---|
-| 模型、思考檔位 | 工作階段記錄檔的 `message.model`、`effort` | `~/.codex/config.toml` | `~/.gemini/antigravity-cli/settings.json` |
+| 模型、思考檔位 | 記錄檔最後一筆 assistant 的 `message.model` 與同一筆的 `effort`；還沒有回覆時取 `~/.claude/settings.json` 的 `model` | `~/.codex/config.toml` 的 `model`、`model_reasoning_effort` | `~/.gemini/antigravity-cli/settings.json` 的 `model`，例如 `Gemini 4 Hydrogen (Medium)`，括號內為檔位 |
 | Context 用量 | 記錄檔最後一筆 `message.usage` | 工作階段記錄檔 | 畫面底部狀態 |
-| MCP | `~/.claude.json`、專案 `.mcp.json` | `config.toml` 的 `mcp_servers` | `~/.gemini/config/mcp_config.json` |
-| Skills | `~/.claude/skills/`、專案 `.claude/skills/` | — | `~/.gemini/config/skills/` |
-| 本機實測 | 記錄檔欄位已確認存在 | 未實測 | 已安裝 1.5.9；資料來源依執行檔內的路徑字串推得，未實測 |
+| MCP | `~/.claude.json` 的 `mcpServers` 與 `projects[<工作資料夾>].mcpServers`、工作資料夾的 `.mcp.json` | `config.toml` 的 `mcp_servers` | `~/.gemini/config/mcp_config.json` 的 `mcpServers` |
+| Skills | `~/.claude/skills/*/SKILL.md`、工作資料夾 `.claude/skills/*/SKILL.md`、claude.ai 同步的 `~/.claude/skills/synced/<bucket>/*/SKILL.md`、`settings.json` 的 `enabledPlugins` 對應到 `plugins/installed_plugins.json` 安裝資料夾下的 `skills/*/SKILL.md`（與 `/skills` 的數量對照過） | `~/.codex/skills/*/SKILL.md` | `~/.gemini/config/skills/*/SKILL.md`、工作資料夾 `.agents/skills/*/SKILL.md` |
+| 帳號 | 見 5.7 | 見 5.7 | 見 5.7 |
+| 本機實測 | 記錄檔欄位與 `--session-id` 旗標已確認（2.1.325） | 未實測 | 1.5.9：`settings.json` 的 `model` 欄位與 `oauth_creds.json` 已確認存在；Skills 與 MCP 路徑依執行檔內的字串推得 |
 
-- Claude Code 記錄檔位置：`~/.claude/projects/<路徑代碼>/<sessionId>.jsonl`。啟動時指定 session id 以便精確對應（旗標待 M0 驗證）；無法指定時取該資料夾最新的記錄檔。
-- Codex 目前未安裝於開發機（使用者沒有訂閱），相關實作只能依官方文件撰寫，完成後需標示未實測，直到實機驗證。agy（Antigravity CLI）1.5.9 已於 2026-11-15 安裝在 `~/.local/bin/agy`，各項資料來源仍需實機確認。
+- Claude Code 記錄檔位置：`~/.claude/projects/<路徑代碼>/<sessionId>.jsonl`。建立工作階段時產生 UUID，以 `claude --session-id <uuid>` 啟動並存入 `@ap-agent-session`；讀取時在 `~/.claude/projects/` 的各資料夾找 `<uuid>.jsonl`，不自行重現路徑代碼的規則。M4 之前建立、沒有 id 的工作階段，改取路徑代碼資料夾（非英數字元換成 `-`）中最新的記錄檔。
+- 記錄檔可能很大，只讀檔尾 256 KB；找不到 assistant 紀錄時再讀 4 MB。
+- 已知限制（未實測）：在 Claude Code 內 `/clear` 或 `/resume` 會換成另一個對話 id，之後的記錄檔不再是綁定的那份。
+- Codex 目前未安裝於開發機（使用者沒有訂閱），相關實作只能依官方文件撰寫，完成後需標示未實測，直到實機驗證。agy（Antigravity CLI）1.5.9 已於 2026-11-15 安裝在 `~/.local/bin/agy`。
 
 ---
 
@@ -555,6 +579,8 @@ interface Platform {
 | 支援 Gemini CLI（`gemini`） | 改為 Antigravity CLI（`agy`） | 使用者 2026-11-15 移除 Gemini CLI，改裝 agy 1.5.9；兩者是不同程式，參數與設定資料夾都不同 |
 | （原始需求未涵蓋）以畫面變化判定執行中 | 只在 adapter 認不出畫面時採用 | M3 實測閒置畫面會因打字與提示文字而變化，一律採用會誤標 `running` 與 `done` |
 | 自動壓縮（Auto-Compact）與 `c` 鍵 | 移除，只保留 Context 用量顯示與警示色 | 使用者決定；避免主動對 AI 送字，且各家已有原生 `/compact`、`/clear` 或 skill |
+| （原始需求未涵蓋）資訊列寬度不足 | 欄位依優先順序先縮短、再整個拿掉 | M4 定義；固定順序讓重要欄位（模型、分支）永遠最後才消失 |
+| Adapter 資料方法為非同步、無參數 | 改為同步並接收 `HostFs` | M4 實作時調整，見 6.4 |
 
 ---
 
