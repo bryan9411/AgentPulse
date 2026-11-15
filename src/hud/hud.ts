@@ -2,9 +2,12 @@ import {HUD_ROWS} from '../config/layout.ts';
 import {COLORS} from '../ui/theme.ts';
 import {padEnd, truncateStart, width as cells} from '../ui/text.ts';
 
+export type HudSession = {branch: string; agent: string; cwd: string; dead: boolean; exitStatus: number | null};
+
 export type HudInput = {
 	tooSmall: boolean;
 	project: {name: string; path: string} | null;
+	session?: HudSession | null;
 };
 
 const fg = (hex: string) => {
@@ -23,6 +26,16 @@ export function hudLines(input: HudInput, size: number): string[] {
 	const lines: string[] = [];
 	if (input.tooSmall || inner === 0) {
 		lines.push(blank);
+	} else if (input.session && input.project) {
+		const se = input.session;
+		const left = `${se.branch} · ${input.project.name} · ${se.agent}`;
+		// Live states (running, needs approval) arrive with M3; only an exit is known now.
+		const right = se.dead ? `exited (${se.exitStatus ?? '?'})` : '';
+		const rightColor = se.dead && se.exitStatus !== 0 ? COLORS.error : COLORS.dim;
+		const shown = right && inner > cells(right) ? right : '';
+		const leftWidth = shown ? inner - cells(shown) - 1 : inner;
+		lines.push(` ${fg(COLORS.text)}${padEnd(left, leftWidth)}${shown ? ` ${fg(rightColor)}${shown}` : ''}${RESET}`);
+		lines.push(` ${fg(COLORS.dim)}${padEnd(truncateStart(se.cwd, inner), inner)}${RESET}`);
 	} else if (!input.project) {
 		lines.push(` ${fg(COLORS.dim)}${padEnd('No project selected', inner)}${RESET}`);
 	} else {

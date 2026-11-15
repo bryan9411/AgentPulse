@@ -3,7 +3,7 @@ import {join} from 'node:path';
 import {render} from 'ink';
 import {configDir, loadConfig} from '../config/config.ts';
 import {configureLog, logError} from '../infra/log.ts';
-import {createTmux, UI_SOCKET} from '../infra/tmux.ts';
+import {AGENT_SOCKET, createTmux, UI_SOCKET} from '../infra/tmux.ts';
 import * as A from '../state/actions.ts';
 import {createStore} from '../state/store.ts';
 import {App} from './App.tsx';
@@ -19,7 +19,13 @@ export function runSidebar(): void {
 		state = A.setNotice(state, 'config.json is invalid');
 	}
 	const store = createStore(state);
-	const controller = startController({store, ui: createTmux(UI_SOCKET), configDir: dir, pid: process.pid});
+	const controller = startController({
+		store,
+		ui: createTmux(UI_SOCKET),
+		agents: createTmux(AGENT_SOCKET),
+		configDir: dir,
+		pid: process.pid,
+	});
 	// Incremental rendering leaves ghosts after a pane resize (M0).
 	render(<App store={store} controller={controller} />, {exitOnCtrlC: false, alternateScreen: true});
 }

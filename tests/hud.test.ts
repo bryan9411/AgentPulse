@@ -22,6 +22,20 @@ describe('hud', () => {
 		expect(first).toBe(' shop · …ath/to/shop');
 	});
 
+	test('session lines keep the exact width and show an exit status', () => {
+		const project = {name: '商店-api', path: '/w/商店-api'};
+		for (const dead of [false, true]) {
+			const session = {branch: 'feat/購物車', agent: 'claude', cwd: '/w/商店-api', dead, exitStatus: dead ? 1 : null};
+			for (const size of [1, 5, 12, 13, 40, 120]) {
+				for (const line of plain(hudLines({tooSmall: false, project, session}, size))) expect(width(line)).toBe(size);
+			}
+		}
+		const [first] = plain(
+			hudLines({tooSmall: false, project, session: {branch: 'main', agent: 'claude', cwd: '/w', dead: true, exitStatus: 0}}, 40),
+		);
+		expect(first?.trimEnd()).toMatch(/^ main · 商店-api · claude +exited \(0\)$/);
+	});
+
 	test('blank while the window is too small', () => {
 		const lines = plain(hudLines({tooSmall: true, project: {name: 'x', path: '/x'}}, 30));
 		expect(lines.every(l => l.trim() === '')).toBe(true);

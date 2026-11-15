@@ -167,6 +167,10 @@
 
 - AgentPulse 關閉後工作階段繼續執行；重新開啟時由 tmux 讀回所有 `agentpulse-` session 及其 metadata，不另存狀態檔。
 - AI 程序結束後保留該格（`remain-on-exit`），以便讀取結束碼；由使用者按 `x` 關閉。
+- 結束後格子底部以 `remain-on-exit-format` 顯示 `AI exited (status N) · ctrl+q, then x to close`，清單列顯示 `✓`（結束碼 0）或 `✕`（非 0），資訊列右側顯示 `exited (N)`。使用者常以 `ctrl+c` 想離開，結果只結束了 AI，這行文字讓畫面不會看起來像卡住。
+- 工作階段名稱為 `agentpulse-` 加一段隨機碼。metadata 與 `new-session` 在同一次 tmux 呼叫中寫入，輪詢不會讀到沒有 metadata 的工作階段；沒有 `@ap-agent` 的 session 一律忽略。
+- 工作階段所屬的專案若已不在設定檔，清單仍會列出該專案群組，確保每個工作階段都看得到、關得掉。
+- `n` 建立後立即切到該工作階段並把焦點交給 AI 格。工作資料夾為專案主資料夾，`@ap-branch` 取當下分支。
 
 ### 5.2 嵌入與焦點
 
@@ -174,6 +178,9 @@
 - 在清單移動選取時，對該 client 執行 `switch-client` 切換顯示的 session，不重開程序。
 - 工作階段的視窗大小自動跟隨 AI 格大小。
 - `enter` / `z` / `ctrl+q` 以 `select-pane` 與 `resize-pane -Z` 實作。
+- AI 格在沒有工作階段時顯示佔位文字。需要顯示某個工作階段而 AI 格還沒有巢狀 client 時（第一個工作階段、UI 重建後），以 `respawn-pane` 把 AI 格換成連到該工作階段的 client；之後一律 `switch-client`。
+- 工作階段 server 設 `detach-on-destroy off`：關閉正在顯示的工作階段時，client 自動換到其他工作階段而不是離開。最後一個也關掉時 client 結束，AI 格退回佔位文字，版面不受影響。
+- 重新啟動後第一次讀到工作階段時，選取停在第一個工作階段，AI 格直接接回。
 
 ### 5.3 狀態偵測
 
@@ -342,7 +349,8 @@
 | mouse | 開 | 開 |
 | `escape-time` | 0 | 0 |
 | 真彩色、延伸按鍵 | 開 | 開 |
-| `remain-on-exit` | — | 開 |
+| `remain-on-exit` | — | 開（附 `remain-on-exit-format`） |
+| `detach-on-destroy` | — | 關 |
 | `history-limit` | — | 50000 |
 
 M0 已確認的實作要點：
@@ -404,6 +412,7 @@ interface AgentAdapter {
   id: AgentId;
   displayName: string;
   rulesFile: string | null;               // CLAUDE.md / AGENTS.md / GEMINI.md
+  binary: string;                         // 啟動前在 PATH 與 platform.binDirs 尋找
 
   launchCommand(opts: { cwd: string }): string[];
   matchProcess(commandLine: string): boolean;        // 辨識外部工作階段
@@ -423,6 +432,8 @@ interface AgentAdapter {
 ```
 
 新增一家 AI 只需要新增一個 adapter 檔並註冊，其他模組不改。
+
+各方法隨階段加入：M2 只有 `id`、`displayName`、`rulesFile`、`binary`、`launchCommand`、`matchProcess`。`launchCommand` 回傳的第一個元素是程式名稱，實際啟動時換成找到的絕對路徑；找不到時新增對話框標示 `not installed`，不建立工作階段。
 
 ### 6.5 Platform 介面
 
@@ -528,6 +539,8 @@ interface Platform {
 | （原始需求未涵蓋）專案群組的展開收合 | `←` `→`、`h` `l`；群組列上按 `enter` 也可切換 | M1 實作時補上，沿用常見的樹狀清單慣例 |
 | （原始需求未涵蓋）視窗過小 | 小於 70 × 16 時清單改顯示提示 | M0 發現 80 × 24 可用但擁擠；再小時左欄 30 欄會擠壓 AI 格 |
 | （原始需求未涵蓋）在 AI 格按 `ctrl+z` | 不攔截按鍵；偵測到暫停畫面後自動送 `SIGCONT` 恢復 | 嵌入後外層沒有 shell，無法用 `fg` 叫回，畫面會卡住 |
+| （原始需求未涵蓋）AI 結束後的畫面 | 格子底部顯示結束碼與關閉方式，清單列 `✓`／`✕` | M0 發現使用者會用 `ctrl+c` 想離開，留下的畫面像卡住 |
+| （原始需求未涵蓋）關掉正在看的工作階段 | 工作階段 server 設 `detach-on-destroy off`；全部關完時 AI 格退回佔位文字 | 避免巢狀 client 結束後 AI 格空白或版面崩壞 |
 | 自動壓縮（Auto-Compact）與 `c` 鍵 | 移除，只保留 Context 用量顯示與警示色 | 使用者決定；避免主動對 AI 送字，且各家已有原生 `/compact`、`/clear` 或 skill |
 
 ---

@@ -1,5 +1,5 @@
 import {MIN_WINDOW} from '../config/layout.ts';
-import type {AppState, Row} from './types.ts';
+import type {AppState, Row, SessionSummary} from './types.ts';
 
 export const projectKey = (path: string) => `p:${path}`;
 export const sessionKey = (id: string) => `s:${id}`;
@@ -32,4 +32,9 @@ export function sessionCount(state: AppState): number {
 export function windowTooSmall(state: AppState): boolean {
 	const w = state.window;
 	return w !== null && (w.columns < MIN_WINDOW.columns || w.rows < MIN_WINDOW.rows);
+}
+
+export function selectedSession(state: AppState): SessionSummary | null {
+	const row = selectedRow(state);
+	return row?.kind === 'session' ? row.session : null;
 }

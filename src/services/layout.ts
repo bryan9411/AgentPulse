@@ -137,3 +137,68 @@ export function paintHud(panes: UiPanes, frame: string): boolean {
 export async function detachUi(tmux: Tmux): Promise<void> {
 	await tmux.run(['detach-client', '-s', sessionTarget]);
 }
+
+export type AiPaneInfo = {tty: string; width: number; height: number};
+
+// Read fresh each time: respawn-pane gives the pane a new pty.
+export async function readAiPane(ui: Tmux, panes: UiPanes): Promise<AiPaneInfo | null> {
+	const out = await ui.out(['display', '-p', '-t', panes.ai, '#{pane_tty} #{pane_width} #{pane_height}']);
+	const [tty, w, h] = out?.split(' ') ?? [];
+	if (!tty) return null;
+	return {tty, width: Number(w) || 80, height: Number(h) || 24};
+}
+
+// The embedded client is named after the AI pane's tty on the session server.
+export async function embeddedClientSession(agents: Tmux, tty: string): Promise<string | null> {
+	const out = await agents.out(['list-clients', '-F', '#{client_tty}\t#{session_name}']);
+	for (const line of out?.split('\n') ?? []) {
+		const [clientTty, session] = line.split('\t');
+		if (clientTty === tty && session) return session;
+	}
+	return null;
+}
+
+export type ShowOptions = {
+	id: string;
+	label: string;
+	attachCommand: string;
+};
+
+const ATTACH_WAIT_MS = 1500;
+
+// switch-client keeps the AI running and only changes what the pane shows
+// (SPEC 5.2). Without a client yet (first session, or after a UI rebuild)
+// the pane is respawned straight into an attach of the wanted session.
+export async function showSession(ui: Tmux, agents: Tmux, panes: UiPanes, opts: ShowOptions): Promise<boolean> {
+	await ui.run(['set', '-p', '-t', panes.ai, '@ap-label', opts.label]);
+	const pane = await readAiPane(ui, panes);
+	if (!pane) return false;
+	const current = await embeddedClientSession(agents, pane.tty);
+	if (current === opts.id) return true;
+	if (current) return (await agents.run(['switch-client', '-c', pane.tty, '-t', `=${opts.id}`])).ok;
+	if (!(await ui.run(['respawn-pane', '-k', '-t', panes.ai, opts.attachCommand])).ok) return false;
+	const deadline = Date.now() + ATTACH_WAIT_MS;
+	while (Date.now() < deadline) {
+		const fresh = await readAiPane(ui, panes);
+		if (fresh && (await embeddedClientSession(agents, fresh.tty)) === opts.id) return true;
+		await Bun.sleep(50);
+	}
+	return false;
+}
+
+export async function clearLabel(ui: Tmux, panes: UiPanes): Promise<void> {
+	await ui.run(['set', '-p', '-t', panes.ai, '@ap-label', '']);
+}
+
+// enter: hand the keyboard to the AI. ctrl+q (bound in the UI server) takes it back.
+export async function focusAi(ui: Tmux, panes: UiPanes): Promise<boolean> {
+	return (await ui.run(['select-pane', '-t', panes.ai])).ok;
+}
+
+// z: full-window AI. ctrl+q selects the sidebar, which also unzooms.
+export async function zoomAi(ui: Tmux, panes: UiPanes): Promise<boolean> {
+	if (!(await focusAi(ui, panes))) return false;
+	const zoomed = await ui.out(['display', '-p', '-t', panes.ai, '#{window_zoomed_flag}']);
+	if (zoomed === '1') return true;
+	return (await ui.run(['resize-pane', '-Z', '-t', panes.ai])).ok;
+}

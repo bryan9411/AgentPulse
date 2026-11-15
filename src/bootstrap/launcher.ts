@@ -8,8 +8,8 @@ import {configureLog, logError} from '../infra/log.ts';
 import {createTmux, parseTmuxVersion, shellQuote, tmuxBin, tmuxEnv, UI_SOCKET, versionAtLeast} from '../infra/tmux.ts';
 import {buildUiLayout, uiAlive, UI_SESSION} from '../services/layout.ts';
 import {addProjectFromCwd} from '../services/projects.ts';
-import {COLORS} from '../ui/theme.ts';
-import {agentsTmuxConf, uiTmuxConf} from './tmuxConf.ts';
+import {aiPlaceholderCommand} from './aiPane.ts';
+import {agentsTmuxConf, confPaths, uiTmuxConf} from './tmuxConf.ts';
 
 export type LaunchOptions = {restartUi: boolean};
 
@@ -24,12 +24,6 @@ export function selfCommand(role: string): string {
 	return compiled
 		? `${shellQuote(process.execPath)} --role=${role}`
 		: `${shellQuote(process.execPath)} run ${shellQuote(Bun.main)} --role=${role}`;
-}
-
-function aiPlaceholderCommand(): string {
-	const n = Number.parseInt(COLORS.dim.slice(1), 16);
-	const dim = `\\033[38;2;${(n >> 16) & 255};${(n >> 8) & 255};${n & 255}m`;
-	return `sh -c ${shellQuote(`printf '\\033[?25l\\n  ${dim}No session yet\\033[0m'; stty -echo; while :; do sleep 86400; done`)}`;
 }
 
 export async function launch(opts: LaunchOptions): Promise<number> {
@@ -49,9 +43,9 @@ export async function launch(opts: LaunchOptions): Promise<number> {
 	if (added && !added.ok) logError(`auto-add ${process.cwd()}: ${added.error}`);
 	const config = added?.ok ? added.config : loaded.config;
 
-	const uiConf = join(dir, 'ui.tmux.conf');
+	const {ui: uiConf, agents: agentsConf} = confPaths(dir);
 	writeTextAtomic(uiConf, uiTmuxConf());
-	writeTextAtomic(join(dir, 'agents.tmux.conf'), agentsTmuxConf());
+	writeTextAtomic(agentsConf, agentsTmuxConf());
 
 	const ui = createTmux(UI_SOCKET, tmuxPath);
 	if (opts.restartUi || !(await uiAlive(ui))) {

@@ -37,8 +37,7 @@ export function SessionList({rows, selectedIndex, width, height, glyphs}: Props)
 				) : (
 					<SessionRow
 						key={row.key}
-						branch={row.session.branch}
-						agent={row.session.agent}
+						session={row.session}
 						selected={selected}
 						width={width}
 						glyphs={glyphs}

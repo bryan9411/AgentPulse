@@ -2,14 +2,30 @@ import type {Config} from '../config/config.ts';
 
 export type Project = {path: string; name: string};
 
-// Filled in by M2 from tmux metadata; M1 only needs the shape for rows.
-export type SessionSummary = {id: string; project: string; branch: string; agent: string};
+// Read back from tmux metadata every poll (SPEC 5.1).
+export type SessionSummary = {
+	id: string;
+	project: string;
+	cwd: string;
+	branch: string;
+	agent: string;
+	dead: boolean;
+	exitStatus: number | null;
+};
 
 export type Row =
 	| {kind: 'project'; key: string; project: Project; count: number; expanded: boolean}
 	| {kind: 'session'; key: string; session: SessionSummary};
 
-export type Dialog = {kind: 'add-project'; value: string; error: string | null; busy: boolean};
+export type AgentOption = {id: string; name: string; installed: boolean};
+
+type DialogBase = {error: string | null; busy: boolean};
+
+export type AddProjectDialog = DialogBase & {kind: 'add-project'; value: string};
+export type NewSessionDialog = DialogBase & {kind: 'new-session'; project: string; options: AgentOption[]; index: number};
+export type CloseSessionDialog = DialogBase & {kind: 'close-session'; session: SessionSummary};
+
+export type Dialog = AddProjectDialog | NewSessionDialog | CloseSessionDialog;
 
 export type WindowSize = {columns: number; rows: number};
 
@@ -17,6 +33,8 @@ export type AppState = {
 	config: Config;
 	projects: Project[];
 	sessions: SessionSummary[];
+	// False until the first successful read from tmux.
+	sessionsLoaded: boolean;
 	collapsed: string[];
 	selected: string | null;
 	dialog: Dialog | null;
