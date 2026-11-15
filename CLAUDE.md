@@ -97,7 +97,7 @@ ui → state → services → agents / infra
 
 ## 版本控制
 
-- `PROGRESS.md` **不進 git**（已列在 `.gitignore`）。`CLAUDE.md` 與 `SPEC.md` 進 git。
+- `PROGRESS.md` 與 `docs/decisions.md`（決策紀錄，平常開工不必讀）**不進 git**（已列在 `.gitignore`）。`CLAUDE.md` 與 `SPEC.md` 進 git。
 - 只有在使用者要求時才 commit 或 push。
 - 規格有任何變動，先改 `SPEC.md`（含第 8 節的調整紀錄），再改程式。
 

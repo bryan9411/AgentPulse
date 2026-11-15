@@ -1,5 +1,6 @@
-# 進度檔不進版控
+# 進度檔與決策紀錄不進版控
 PROGRESS.md
+docs/decisions.md
 
 node_modules/
 dist/
