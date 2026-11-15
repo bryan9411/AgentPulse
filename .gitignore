@@ -1,0 +1,13 @@
+# 進度檔不進版控
+PROGRESS.md
+
+node_modules/
+dist/
+.DS_Store
+*.log
+
+# M0 驗證程式的執行期暫存
+.run/
+
+# Bun 編譯執行檔時留下的暫存檔
+*.bun-build

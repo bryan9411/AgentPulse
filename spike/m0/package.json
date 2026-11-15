@@ -1,0 +1,19 @@
+{
+  "name": "agentpulse-spike-m0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build ./src/index.tsx --compile --outfile dist/spike"
+  },
+  "dependencies": {
+    "ink": "^8.0.0",
+    "react": "^19.3.1",
+    "string-width": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "@types/react": "^19.3.0",
+    "react-devtools-core": "^8.0.0",
+    "typescript": "^7.0.2"
+  }
+}
