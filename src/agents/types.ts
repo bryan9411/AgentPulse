@@ -1,4 +1,4 @@
-export type AgentId = 'claude' | 'codex' | 'gemini' | 'aider';
+export type AgentId = 'claude' | 'codex' | 'gemini';
 
 // SPEC 6.4. Only the launch side exists so far; classify, isSuspended and
 // the HUD data sources join this interface in M3–M5.

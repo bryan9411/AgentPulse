@@ -46,7 +46,7 @@
 ## 3. 畫面
 
 ```
- AgentPulse  5 sessions · ◐ 1 needs approval · ✕ 1 error        claude ●  codex ●  gemini ○  aider ○
+ AgentPulse  5 sessions · ◐ 1 needs approval · ✕ 1 error        claude ●  codex ●  gemini ○
 ────────────────────────┬───────────────────────────────────────────────────────────────────────
  Sessions               │ fix/login-bug · shop-api · codex                                ○ idle
  / filter               │ gpt-5-codex [high] · MCP github, postgres · skills 4 · AGENTS.md ✓
@@ -144,7 +144,7 @@
 
 ### 4.3 為什麼放大不用 `ctrl+e`
 
-`ctrl+e` 在 Claude Code、Codex、Gemini CLI、Aider 的輸入框裡都是「游標移到行尾」。若被 AgentPulse 攔走，AI 的輸入行為就和原版不同。所以放大改由清單上的 `z` 觸發，`ctrl+q` 還原，保留鍵維持只有一個。
+`ctrl+e` 在 Claude Code、Codex、Gemini CLI 的輸入框裡都是「游標移到行尾」。若被 AgentPulse 攔走，AI 的輸入行為就和原版不同。所以放大改由清單上的 `z` 觸發，`ctrl+q` 還原，保留鍵維持只有一個。
 
 ---
 
@@ -152,13 +152,13 @@
 
 ### 5.1 工作階段管理
 
-- 支援四種 AI：Claude Code（`claude`）、Codex CLI（`codex`）、Gemini CLI（`gemini`）、Aider（`aider`）。
+- 支援三種 AI：Claude Code（`claude`）、Codex CLI（`codex`）、Gemini CLI（`gemini`）。
 - 每個工作階段是專屬 tmux server 上的一個 session，名稱前綴 `agentpulse-`。
 - 建立時在 session 上寫入 metadata（tmux user option）：
 
 | Option | 內容 |
 |---|---|
-| `@ap-agent` | `claude` / `codex` / `gemini` / `aider` |
+| `@ap-agent` | `claude` / `codex` / `gemini` |
 | `@ap-project` | 專案主資料夾絕對路徑 |
 | `@ap-cwd` | 該工作階段的工作資料夾 |
 | `@ap-branch` | 建立當下的分支名稱 |
@@ -204,7 +204,7 @@
   - 不定時對所有 AI 送 `SIGCONT`：Claude Code 每收到一次就整個重畫（M0 實測）。
   - 不在外層包一層 shell：macOS 內建的 `/bin/sh` 在非互動模式下無法可靠地接手被暫停的程式（M0 實測兩種寫法都失敗）。
   - 暫停期間打的字會留在終端機的緩衝區，恢復後送進 AI 的輸入框。恢復通常在 1 秒內發生，影響有限。
-  - Claude Code 2.1.325 已實測。其餘三家未實測，`isSuspended` 先一律回傳 `false`。
+  - Claude Code 2.1.325 已實測。Codex、Gemini 未實測，`isSuspended` 先一律回傳 `false`。
 
 ### 5.4 通知
 
@@ -238,14 +238,13 @@
 
 ### 5.7 帳號狀態
 
-頂列顯示四家各一個符號：`●` 為 `signed in`，`○` 為 `not set`。每 60 秒檢查一次。
+頂列顯示三家各一個符號：`●` 為 `signed in`，`○` 為 `not set`。每 60 秒檢查一次。
 
 | AI | 判定為 signed in 的條件（任一成立） |
 |---|---|
 | Claude Code | 環境變數 `ANTHROPIC_API_KEY`；或 `~/.claude.json` 內有 `oauthAccount` |
 | Codex | 環境變數 `OPENAI_API_KEY`；或 `~/.codex/auth.json` 存在 |
 | Gemini | 環境變數 `GEMINI_API_KEY`；或 `~/.gemini/oauth_creds.json` 存在 |
-| Aider | 任一供應商金鑰環境變數存在 |
 
 - 只檢查「是否存在」，**不讀取、不記錄、不顯示**任何金鑰或 token 的值。
 - 認證失敗不另設燈號；畫面出現認證失敗字樣時，該工作階段依 5.3 變為 `error`。
@@ -387,7 +386,7 @@ src/
     context/         用量估算與視窗對照
     accounts.ts  worktree.ts  conflictRadar.ts  ports.ts  tokens.ts
   agents/            每家 AI 一個 adapter
-    types.ts  claude.ts  codex.ts  gemini.ts  aider.ts
+    types.ts  claude.ts  codex.ts  gemini.ts
   infra/             對外唯一出口
     exec.ts          Bun.spawn 包裝：逾時、併發上限、錯誤分類
     tmux.ts  git.ts  fsx.ts
@@ -405,7 +404,7 @@ src/
 ### 6.4 Adapter 介面
 
 ```ts
-type AgentId = 'claude' | 'codex' | 'gemini' | 'aider';
+type AgentId = 'claude' | 'codex' | 'gemini';
 type AgentState = 'running' | 'needs-approval' | 'idle' | 'done' | 'error';
 
 interface AgentAdapter {
@@ -482,16 +481,16 @@ interface Platform {
 
 ### 6.8 各家資料來源
 
-| 項目 | Claude Code | Codex | Gemini | Aider |
-|---|---|---|---|---|
-| 模型、思考檔位 | 工作階段記錄檔的 `message.model`、`effort` | `~/.codex/config.toml` | `~/.gemini/settings.json` | 啟動畫面 |
-| Context 用量 | 記錄檔最後一筆 `message.usage` | 工作階段記錄檔 | 畫面底部狀態 | 無 |
-| MCP | `~/.claude.json`、專案 `.mcp.json` | `config.toml` 的 `mcp_servers` | `settings.json` 的 `mcpServers` | 無 |
-| Skills | `~/.claude/skills/`、專案 `.claude/skills/` | — | — | — |
-| 本機實測 | 記錄檔欄位已確認存在 | 未實測 | 未實測 | 未實測 |
+| 項目 | Claude Code | Codex | Gemini |
+|---|---|---|---|
+| 模型、思考檔位 | 工作階段記錄檔的 `message.model`、`effort` | `~/.codex/config.toml` | `~/.gemini/settings.json` |
+| Context 用量 | 記錄檔最後一筆 `message.usage` | 工作階段記錄檔 | 畫面底部狀態 |
+| MCP | `~/.claude.json`、專案 `.mcp.json` | `config.toml` 的 `mcp_servers` | `settings.json` 的 `mcpServers` |
+| Skills | `~/.claude/skills/`、專案 `.claude/skills/` | — | — |
+| 本機實測 | 記錄檔欄位已確認存在 | 未實測 | 已安裝 0.68.0，資料來源未實測 |
 
 - Claude Code 記錄檔位置：`~/.claude/projects/<路徑代碼>/<sessionId>.jsonl`。啟動時指定 session id 以便精確對應（旗標待 M0 驗證）；無法指定時取該資料夾最新的記錄檔。
-- Codex、Gemini、Aider 目前未安裝於開發機，相關實作只能依官方文件撰寫，完成後需標示未實測，直到實機驗證。
+- Codex 目前未安裝於開發機（使用者沒有訂閱），相關實作只能依官方文件撰寫，完成後需標示未實測，直到實機驗證。Gemini CLI 已於 2026-11-15 安裝，各項資料來源仍需實機確認。
 
 ---
 
@@ -541,6 +540,7 @@ interface Platform {
 | （原始需求未涵蓋）在 AI 格按 `ctrl+z` | 不攔截按鍵；偵測到暫停畫面後自動送 `SIGCONT` 恢復 | 嵌入後外層沒有 shell，無法用 `fg` 叫回，畫面會卡住 |
 | （原始需求未涵蓋）AI 結束後的畫面 | 格子底部顯示結束碼與關閉方式，清單列 `✓`／`✕` | M0 發現使用者會用 `ctrl+c` 想離開，留下的畫面像卡住 |
 | （原始需求未涵蓋）關掉正在看的工作階段 | 工作階段 server 設 `detach-on-destroy off`；全部關完時 AI 格退回佔位文字 | 避免巢狀 client 結束後 AI 格空白或版面崩壞 |
+| 支援 Aider | 移除，只支援 Claude Code、Codex、Gemini CLI | 使用者決定，沒在使用；Aider 需另付 API 費用，後續階段不必為它維護狀態規則 |
 | 自動壓縮（Auto-Compact）與 `c` 鍵 | 移除，只保留 Context 用量顯示與警示色 | 使用者決定；避免主動對 AI 送字，且各家已有原生 `/compact`、`/clear` 或 skill |
 
 ---
@@ -558,7 +558,7 @@ M0 於 2026-11-15 在 macOS 26.6.2、tmux 3.8、Bun 1.4.4、Ink 8.0.0、Claude C
 | G5 | 關閉終端機後重新啟動，工作階段與對話仍在 | 通過。未送出的輸入文字也保留 |
 | G6 | 從 Finder 啟動時能找到 `tmux` 與 `git` | 通過。Terminal.app 提供的 PATH 已含 Homebrew 與 nvm |
 | G7 | 狀態符號為一格寬 | Terminal.app 通過（實測游標位移）。iTerm2 未測 |
-| G8 | `ctrl+q` 在 AI 中沒有重要用途 | Claude Code 通過。其餘三家未安裝，未測 |
+| G8 | `ctrl+q` 在 AI 中沒有重要用途 | Claude Code 通過。其餘當時未安裝，未測 |
 
 M0 另外發現：
 
@@ -569,5 +569,5 @@ M0 另外發現：
 其他已知風險：
 
 - **狀態誤判：** 畫面樣式隨各家 CLI 改版而變，需持續維護規則與測試案例。
-- **三家未實測：** Codex、Gemini、Aider 未安裝，其 adapter 完成後仍屬未驗證。
+- **未實測：** Codex 未安裝，其 adapter 完成後仍屬未驗證。Gemini 已實測啟動，狀態偵測與資訊列欄位仍待實測。
 - **合併操作：** 涉及使用者的 git 歷史，所有步驟必須先確認、失敗即還原。

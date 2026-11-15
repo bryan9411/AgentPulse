@@ -1,4 +1,3 @@
-import {aider} from './aider.ts';
 import {claude} from './claude.ts';
 import {codex} from './codex.ts';
 import {gemini} from './gemini.ts';
@@ -7,7 +6,7 @@ import type {AgentAdapter, AgentId} from './types.ts';
 export type {AgentAdapter, AgentId} from './types.ts';
 
 // Order is the order shown in the new-session dialog.
-export const AGENTS: readonly AgentAdapter[] = [claude, codex, gemini, aider];
+export const AGENTS: readonly AgentAdapter[] = [claude, codex, gemini];
 
 export function getAgent(id: string): AgentAdapter | null {
 	return AGENTS.find(agent => agent.id === id) ?? null;
