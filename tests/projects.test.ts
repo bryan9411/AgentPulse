@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {configFile, loadConfig} from '../src/config/config.ts';
 import {exec} from '../src/infra/exec.ts';
 import {projectRoot} from '../src/infra/git.ts';
-import {addProject, addProjectFromCwd} from '../src/services/projects.ts';
+import {addProject, addProjectFromCwd, removeProject} from '../src/services/projects.ts';
 
 // Every git test runs in a throwaway repository under the system temp folder.
 const base = realpathSync(mkdtempSync(join(tmpdir(), 'ap-git-')));
@@ -75,5 +75,16 @@ describe('addProject', () => {
 		expect(await addProjectFromCwd(plain, dir)).toBeNull();
 		const r = await addProjectFromCwd(repo, dir);
 		expect(r?.ok && r.config.projects).toEqual([repo]);
+	});
+
+	test('removeProject removes project from config', async () => {
+		const dir = join(base, 'config-d');
+		await addProject(repo, dir);
+		expect(loadConfig(dir).config.projects).toEqual([repo]);
+
+		const res = removeProject(repo, dir);
+		expect(res.ok).toBe(true);
+		if (res.ok) expect(res.config.projects).toEqual([]);
+		expect(loadConfig(dir).config.projects).toEqual([]);
 	});
 });

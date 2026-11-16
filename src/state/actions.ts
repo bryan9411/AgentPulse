@@ -201,6 +201,13 @@ export function openCloseSession(state: AppState): AppState {
 	return {...state, dialog: {kind: 'close-session', session: row.session, error: null, busy: false}};
 }
 
+export function openRemoveProject(state: AppState): AppState {
+	const row = selectedRow(state);
+	if (row?.kind !== 'project') return state;
+	const sessionCount = state.sessions.filter(s => s.project === row.project.path).length;
+	return {...state, dialog: {kind: 'remove-project', project: row.project, sessionCount, error: null, busy: false}};
+}
+
 export function setDialogBusy(state: AppState, busy: boolean): AppState {
 	return state.dialog ? {...state, dialog: {...state.dialog, busy}} : state;
 }

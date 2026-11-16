@@ -18,7 +18,7 @@ export type Config = {
 
 export const DEFAULT_CONFIG: Config = {
 	projects: [],
-	sidebarWidth: 30,
+	sidebarWidth: 36,
 	notifications: true,
 	glyphs: 'unicode',
 	keys: {back: 'C-q'},
@@ -102,4 +102,9 @@ function serialize(config: Config): string {
 export function withProject(config: Config, path: string): Config {
 	if (config.projects.includes(path)) return config;
 	return {...config, projects: [...config.projects, path]};
+}
+
+export function withoutProject(config: Config, path: string): Config {
+	if (!config.projects.includes(path)) return config;
+	return {...config, projects: config.projects.filter(p => p !== path)};
 }

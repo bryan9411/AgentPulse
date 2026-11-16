@@ -34,6 +34,7 @@ export type HintContext = {
 export function listHints({focus, dialog, row, editingFilter, filtered, mergeSettled}: HintContext, lang: Lang = DEFAULT_LANG): string[] {
 	const h = strings(lang).hints;
 	if (dialog === 'add-project') return h.addProject;
+	if (dialog === 'remove-project') return h.removeProject;
 	if (dialog === 'new-session') return h.newSession;
 	if (dialog === 'close-session') return h.closeSession;
 	if (dialog === 'worktree') return h.worktree;

@@ -36,6 +36,7 @@ const en = {
 	// Each line must fit the default 28-cell list width.
 	hints: {
 		addProject: ['enter add · esc cancel'],
+		removeProject: ['enter remove · esc cancel'],
 		newSession: ['↑↓ choose · enter start', 'esc cancel'],
 		closeSession: ['enter close · esc cancel'],
 		worktree: ['↑↓ pick AI · enter create', 'esc cancel'],
@@ -48,12 +49,19 @@ const en = {
 		filterOff: '/ filter · f needs you',
 		session: ['↑↓ move · enter type', 'z zoom · x close · n new', 'w worktree · m merge', 'd diff · o open web'],
 		// Padded to as many lines as `session` so the list does not jump.
-		project: ['↑↓ move · ←→ fold', 'n new session', 'w worktree (new branch)', ''],
+		project: ['↑↓ move · ←→ fold', 'n new session', 'w worktree (new branch)', 'x remove project'],
 		// Names the other language in its own script so it can be found
 		// by someone who cannot read this one.
 		tail: ['a add project · q quit', '? help · t 中文'],
 	},
 	addProject: {title: 'Add project', label: 'Folder path (git repo):', busy: 'Checking…'},
+	removeProject: {
+		title: 'Remove project?',
+		willRemove: 'Will be removed from the list.',
+		sessionsWillStop: (n: number) => `${n} active ${n === 1 ? 'session' : 'sessions'} will be stopped.`,
+		diskUntouched: 'Files on disk are kept untouched.',
+		busy: 'Removing…',
+	},
 	newSession: {
 		title: 'New session',
 		inProject: (name: string) => `in ${name}`,
@@ -260,6 +268,7 @@ const zhTW: Strings = {
 	},
 	hints: {
 		addProject: ['enter 加入 · esc 取消'],
+		removeProject: ['enter 移除 · esc 取消'],
 		newSession: ['↑↓ 選擇 · enter 啟動', 'esc 取消'],
 		closeSession: ['enter 關閉 · esc 取消'],
 		worktree: ['↑↓ 選 AI · enter 建立', 'esc 取消'],
@@ -271,10 +280,17 @@ const zhTW: Strings = {
 		filterOn: '/ 搜尋 · f · esc 清除',
 		filterOff: '/ 搜尋 · f 只看要處理的',
 		session: ['↑↓ 選擇 · enter 跟 AI 對話', 'z 放大 · x 關閉 · n 新增 AI', 'w 開新分支 · m 合併回主線', 'd 看修改 · o 開網頁'],
-		project: ['↑↓ 選擇 · ←→ 收合展開', 'n 新增 AI', 'w 開新分支（另開資料夾）', ''],
+		project: ['↑↓ 選擇 · ←→ 收合展開', 'n 新增 AI', 'w 開新分支（另開資料夾）', 'x 移除專案'],
 		tail: ['a 加入專案 · q 離開', '? 說明 · t English'],
 	},
 	addProject: {title: '加入專案', label: '輸入專案資料夾路徑：', busy: '檢查中…'},
+	removeProject: {
+		title: '移除專案？',
+		willRemove: '將從專案清單中移除。',
+		sessionsWillStop: n => `底下的 ${n} 個 AI 也會一併關閉。`,
+		diskUntouched: '磁碟上的檔案不受影響。',
+		busy: '移除中…',
+	},
 	newSession: {
 		title: '新增 AI',
 		inProject: name => `專案：${name}`,

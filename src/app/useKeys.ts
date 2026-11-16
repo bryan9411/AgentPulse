@@ -79,8 +79,10 @@ export function useKeys(store: Store<AppState>, controller: Controller) {
 		} else if (input === 'z') {
 			if (row?.kind === 'session') void controller.zoomAi();
 		} else if (input === 'n') controller.openNewSession();
-		else if (input === 'x') store.set(A.openCloseSession);
-		else if (input === 'w') controller.openWorktree();
+		else if (input === 'x') {
+			if (row?.kind === 'project') store.set(A.openRemoveProject);
+			else if (row?.kind === 'session') store.set(A.openCloseSession);
+		} else if (input === 'w') controller.openWorktree();
 		else if (input === 'm') controller.openMerge();
 		else if (input === 'd') void controller.showDiff();
 		else if (input === '?') void controller.showHelp();

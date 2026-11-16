@@ -7,6 +7,7 @@ import type {AppState, Dialog, Project} from '../state/types.ts';
 import {conflictLines} from './conflictLines.ts';
 import {AddProjectDialog} from './dialogs/AddProjectDialog.tsx';
 import {CloseSessionDialog, CLOSE_SESSION_DIALOG_ROWS} from './dialogs/CloseSessionDialog.tsx';
+import {RemoveProjectDialog, REMOVE_PROJECT_DIALOG_ROWS} from './dialogs/RemoveProjectDialog.tsx';
 import {mergeLines} from './dialogs/mergeLines.ts';
 import {NewSessionDialog, newSessionDialogRows} from './dialogs/NewSessionDialog.tsx';
 import {openUrlLines} from './dialogs/openUrlLines.ts';
@@ -38,12 +39,14 @@ function dialogRows(dialog: Dialog | null, lines: Line[] | null): number {
 	if (!dialog) return 0;
 	if (lines) return lines.length;
 	if (dialog.kind === 'add-project') return ADD_PROJECT_DIALOG_ROWS;
+	if (dialog.kind === 'remove-project') return REMOVE_PROJECT_DIALOG_ROWS;
 	if (dialog.kind === 'new-session') return newSessionDialogRows(dialog);
 	return CLOSE_SESSION_DIALOG_ROWS;
 }
 
 function DialogView({dialog, projects, width, lang}: {dialog: Dialog; projects: Project[]; width: number; lang: Lang}) {
 	if (dialog.kind === 'add-project') return <AddProjectDialog dialog={dialog} width={width} lang={lang} />;
+	if (dialog.kind === 'remove-project') return <RemoveProjectDialog dialog={dialog} width={width} lang={lang} />;
 	if (dialog.kind === 'close-session') return <CloseSessionDialog dialog={dialog} width={width} lang={lang} />;
 	if (dialog.kind !== 'new-session') return null;
 	return <NewSessionDialog dialog={dialog} projectName={projectName(projects, dialog.project)} width={width} lang={lang} />;

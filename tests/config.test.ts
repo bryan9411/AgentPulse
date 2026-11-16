@@ -2,7 +2,7 @@ import {describe, expect, test} from 'bun:test';
 import {mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {configFile, DEFAULT_CONFIG, loadConfig, normalizeConfig, saveConfig, withProject} from '../src/config/config.ts';
+import {configFile, DEFAULT_CONFIG, loadConfig, normalizeConfig, saveConfig, withoutProject, withProject} from '../src/config/config.ts';
 
 const tempDir = () => join(mkdtempSync(join(tmpdir(), 'ap-config-')), 'agentpulse');
 
@@ -42,7 +42,7 @@ describe('config', () => {
 			unknown: true,
 		});
 		expect(c.projects).toEqual(['/a', '/b']);
-		expect(c.sidebarWidth).toBe(30);
+		expect(c.sidebarWidth).toBe(36);
 		expect(c.glyphs).toBe('ascii');
 		expect(c.keys.back).toBe('C-q');
 		expect(c.contextWarnAt).toBe(80);
@@ -67,5 +67,11 @@ describe('config', () => {
 		expect(withProject(once, '/x')).toBe(once);
 		expect(once.projects).toEqual(['/x']);
 		expect(DEFAULT_CONFIG.projects).toEqual([]);
+	});
+
+	test('withoutProject removes path and ignores missing', () => {
+		const config = {...DEFAULT_CONFIG, projects: ['/a', '/b']};
+		expect(withoutProject(config, '/b').projects).toEqual(['/a']);
+		expect(withoutProject(config, '/c')).toBe(config);
 	});
 });

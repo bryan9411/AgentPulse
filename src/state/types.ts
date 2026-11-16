@@ -40,6 +40,7 @@ export type AgentOption = {id: string; name: string; installed: boolean};
 type DialogBase = {error: Message | null; busy: boolean};
 
 export type AddProjectDialog = DialogBase & {kind: 'add-project'; value: string};
+export type RemoveProjectDialog = DialogBase & {kind: 'remove-project'; project: Project; sessionCount: number};
 export type NewSessionDialog = DialogBase & {kind: 'new-session'; project: string; options: AgentOption[]; index: number};
 export type CloseSessionDialog = DialogBase & {kind: 'close-session'; session: SessionSummary};
 // SPEC 5.9. `base` is null until the main folder's branch has been read.
@@ -64,7 +65,7 @@ export type MergeDialog = DialogBase & {
 };
 export type OpenUrlDialog = DialogBase & {kind: 'open-url'; ports: number[]; index: number};
 
-export type Dialog = AddProjectDialog | NewSessionDialog | CloseSessionDialog | WorktreeDialog | MergeDialog | OpenUrlDialog;
+export type Dialog = AddProjectDialog | RemoveProjectDialog | NewSessionDialog | CloseSessionDialog | WorktreeDialog | MergeDialog | OpenUrlDialog;
 
 export type WindowSize = {columns: number; rows: number};
 

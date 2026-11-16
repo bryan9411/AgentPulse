@@ -50,7 +50,7 @@ import {diffCommand, pageFileCommand} from '../services/diff.ts';
 import {contextView, contextWindow} from '../services/context/usage.ts';
 import {gitDue, readFacts} from '../services/details.ts';
 import {sessionPorts} from '../services/ports.ts';
-import {addProject} from '../services/projects.ts';
+import {addProject, removeProject} from '../services/projects.ts';
 import {createScheduler, exclusive} from '../services/scheduler.ts';
 import {
 	agentChoices,
@@ -493,6 +493,29 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		store.set(s => A.closeDialog(A.selectProject(A.setNotice(A.setConfig(s, result.config), null), result.path)));
 	};
 
+	const submitRemoveProject = async (projectPath: string) => {
+		const under = store.get().sessions.filter(s => s.project === projectPath);
+		for (const session of under) {
+			if (!(await closeAndForget(session.id))) {
+				store.set(s => A.setDialogError(s, msg('cannotClose')));
+				return;
+			}
+		}
+		const result = removeProject(projectPath, configDir);
+		if (!result.ok) {
+			store.set(s => A.setDialogError(s, result.error));
+			return;
+		}
+		configMtime = mtimeMs(configFile(configDir));
+		if (under.length > 0) {
+			await refreshSessions();
+		}
+		store.set(s => A.closeDialog(A.setConfig(s, result.config)));
+		if (under.length > 0) {
+			await afterClose();
+		}
+	};
+
 	const giveFocus = async (zoom: boolean) => {
 		const session = selectedSession(store.get());
 		if (!panes || !session) return;
@@ -688,6 +711,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 			const working = store.get().dialog;
 			try {
 				if (dialog.kind === 'add-project') await submitAddProject(dialog.value);
+				else if (dialog.kind === 'remove-project') await submitRemoveProject(dialog.project.path);
 				else if (dialog.kind === 'new-session') await submitNewSession(dialog.project, agent);
 				else if (dialog.kind === 'worktree') await submitWorktree(dialog, agent);
 				else if (dialog.kind === 'merge') await submitMerge(dialog);
@@ -695,7 +719,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 					const port = dialog.ports[dialog.index];
 					if (port !== undefined && (await openPort(port))) store.set(A.closeDialog);
 					else store.set(s => A.setDialogError(s, msg('openFailed')));
-				} else await submitCloseSession(dialog.session.id);
+				} else if (dialog.kind === 'close-session') await submitCloseSession(dialog.session.id);
 			} catch (error) {
 				logError(`dialog ${dialog.kind}: ${String(error)}`);
 				store.set(s => A.setDialogError(s, msg('failed')));

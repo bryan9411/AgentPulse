@@ -21,7 +21,13 @@ open_in_iterm() {
 on run argv
 	set target to quoted form of (item 1 of argv)
 	tell application id "com.googlecode.iterm2"
-		create window with default profile command target
+		if (count of windows) > 0 then
+			tell current window
+				create tab with default profile command target
+			end tell
+		else
+			create window with default profile command target
+		end if
 		activate
 	end tell
 end run

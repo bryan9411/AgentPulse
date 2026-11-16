@@ -61,7 +61,7 @@ else
 	x86_64) asset=bun-darwin-x64-baseline sum=$BUN_SHA256_X64 ;;
 	*) fail "不支援這種處理器：$(uname -m)" ;;
 	esac
-	say "  暫時下載 Bun $BUN_VERSION（安裝完會自動刪除）"
+	say "  暫時下載 Bun ${BUN_VERSION}（安裝完會自動刪除）"
 	curl -fsSL "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/$asset.zip" -o "$work/bun.zip" ||
 		fail "下載 Bun 失敗，請確認網路連線後再試一次。"
 	[ "$(shasum -a 256 "$work/bun.zip" | cut -d ' ' -f 1)" = "$sum" ] ||

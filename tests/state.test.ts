@@ -159,6 +159,13 @@ describe('state', () => {
 		expect(onSession.dialog).toMatchObject({kind: 'close-session', session: {id: 'a1'}});
 	});
 
+	test('remove project dialog only opens on a project row', () => {
+		const s = withSessions(A.initialState(config));
+		const onProject = A.openRemoveProject(s);
+		expect(onProject.dialog).toMatchObject({kind: 'remove-project', project: {name: 'p1'}, sessionCount: 2});
+		expect(A.openRemoveProject(A.moveSelection(s, 1))).toBe(A.moveSelection(s, 1));
+	});
+
 	test('key hints follow focus, row kind and dialog', () => {
 		expect(listHints({focus: 'ai', dialog: null, row: 'session'})).toEqual(['ctrl+q back']);
 		expect(listHints({focus: 'list', dialog: null, row: 'session'}).join(' ')).toContain('enter type');
@@ -171,7 +178,8 @@ describe('state', () => {
 		}
 		expect(listHints({focus: 'list', dialog: null, row: 'session', editingFilter: true}).join(' ')).toContain('esc clear');
 		expect(listHints({focus: 'list', dialog: 'close-session', row: 'session'})).toEqual(['enter close · esc cancel']);
-		// The sidebar is 30 columns with one column of padding on each side.
+		expect(listHints({focus: 'list', dialog: 'remove-project', row: 'project'})).toEqual(['enter remove · esc cancel']);
+		// The sidebar is 36 columns with one column of padding on each side.
 		for (const lang of ['en', 'zh-TW'] as const) {
 			for (const row of ['session', 'project'] as const) {
 				for (const filtered of [false, true]) {
@@ -180,7 +188,7 @@ describe('state', () => {
 					}
 				}
 			}
-			for (const dialog of ['add-project', 'new-session', 'close-session', 'worktree', 'merge', 'open-url'] as const) {
+			for (const dialog of ['add-project', 'remove-project', 'new-session', 'close-session', 'worktree', 'merge', 'open-url'] as const) {
 				for (const mergeSettled of [false, true]) {
 					for (const line of listHints({focus: 'list', dialog, row: null, mergeSettled}, lang)) expect(width(line)).toBeLessThanOrEqual(28);
 				}
