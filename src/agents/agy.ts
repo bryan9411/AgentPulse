@@ -4,22 +4,15 @@ import {commandHasProgram} from './match.ts';
 import {findInputBox, lastNonEmpty, screenLines} from './screen.ts';
 import type {AccountStatus, AgentAdapter, HostFs, ScreenState, SessionInfo} from './types.ts';
 
-// Antigravity CLI 1.5.9, a native binary installed to ~/.local/bin. The
-// rules come from screens captured from it (tests/fixtures/agy/) unless
-// marked "not tested".
-
 const PROMPT = '>';
 
-// Trust and command-permission dialogs replace the input box and list
-// their keys at the bottom.
+// 信任與指令授權選單會取代輸入框並在底部顯示操作提示
 const DIALOG_HINT = /↑\/↓ Navigate/;
 
-// The footer reads "esc to cancel" while a turn runs. Dialogs show it too,
-// which is why they are checked first.
+// 執行中與授權選單都會出現 "esc to cancel"，因此需先排除對話框再判斷是否執行中
 const BUSY_HINT = /^esc to cancel\b/;
 
-// Not tested: no error screen was captured, so errors are not recognised
-// and an agy that failed shows as idle.
+// 未實測：尚未取得 agy 錯誤畫面樣本，發生錯誤時會暫時顯示為 idle
 function classify(screen: string): ScreenState | null {
 	const lines = screenLines(screen);
 	const box = findInputBox(lines, PROMPT);
@@ -28,20 +21,14 @@ function classify(screen: string): ScreenState | null {
 	return 'idle';
 }
 
-// The status row under the input box always carries right-aligned model
-// info, so it is either indented or has a wide gap in the middle. Text typed
-// while stopped is echoed raw below the box and has neither.
+// 正常狀態列右側固定顯示模型名稱，必定有縮排或大段空白；暫停期間被直接印在框外的輸入字元則沒有
 const STATUS_ROW = /^ {3,}\S|\S {3,}\S/;
 
-// ctrl+z stops agy without printing anything; what is left is the input box
-// with its status row gone.
+// agy 收到 ctrl+z 暫停時不會印出訊息，只會讓輸入框底下的狀態列整行消失
 function isSuspended(screen: string): boolean {
 	const box = findInputBox(screenLines(screen), PROMPT);
 	return box !== null && !box.footer.some(line => STATUS_ROW.test(line));
 }
-
-// ---- HUD data (SPEC 6.8). Paths come from strings in the 1.5.9 binary;
-// settings.json `model` and oauth_creds.json were seen on this machine. ----
 
 const geminiDir = (fs: HostFs) => join(fs.home, '.gemini');
 
@@ -52,7 +39,7 @@ function accountStatus(fs: HostFs): AccountStatus {
 
 function mcpServers(fs: HostFs): string[] | null {
 	const path = join(geminiDir(fs), 'config', 'mcp_config.json');
-	// agy leaves this file empty until a server is added.
+	// agy 在尚未加入任何 MCP server 前會留下空檔案
 	if ((fs.readText(path) ?? '').trim() === '') return [];
 	const json = readJson(fs, path);
 	return json === null ? null : keysOf(json, 'mcpServers');
@@ -62,17 +49,14 @@ function skillsCount(fs: HostFs, cwd: string): number {
 	return countSkills(fs, [join(geminiDir(fs), 'config', 'skills'), join(cwd, '.agents', 'skills')]);
 }
 
-// The setting reads like "Gemini 4 Hydrogen (Medium)": the level in brackets.
 export function splitAgyModel(value: string | null): Pick<SessionInfo, 'model' | 'effort'> {
 	if (!value) return {model: null, effort: null};
 	const m = /^(.*\S)\s*\(([^()]+)\)$/.exec(value.trim());
 	return m ? {model: m[1] ?? null, effort: m[2] ?? null} : {model: value.trim(), effort: null};
 }
 
-// Not tested: whether a model switched inside a running agy is written back
-// here at once; the file holds the last choice.
-// Context usage is not supported (SPEC 6.8): agy's screen does not show it
-// and its conversations are kept in SQLite.
+// 未實測：執行中切換模型是否會即時寫回 settings.json。
+// agy 對話存在 SQLite 且畫面不顯示用量，故不支援 context 用量。
 function sessionInfo(fs: HostFs): SessionInfo {
 	const model = splitAgyModel(stringField(readJson(fs, join(geminiDir(fs), 'antigravity-cli', 'settings.json')), 'model'));
 	return {...model, context: null};
@@ -81,7 +65,6 @@ function sessionInfo(fs: HostFs): SessionInfo {
 export const agy: AgentAdapter = {
 	id: 'agy',
 	displayName: 'Antigravity CLI',
-	// The 1.5.9 binary's own docs say both are read.
 	rulesFiles: ['GEMINI.md', 'AGENTS.md'],
 	binary: 'agy',
 	pinsSessionId: false,

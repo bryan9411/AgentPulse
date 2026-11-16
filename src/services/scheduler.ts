@@ -1,6 +1,3 @@
-// SPEC 6.6. Each job runs on its own interval; a job still busy from the
-// previous round skips this one instead of stacking up behind it.
-
 export type Scheduler = {
 	every(ms: number, name: string, task: () => Promise<void>): () => Promise<void>;
 	stop(): void;
@@ -8,7 +5,7 @@ export type Scheduler = {
 
 export type OnError = (name: string, error: unknown) => void;
 
-// Exposed for one-off triggers (a tmux hook) that must also respect the lock.
+// 同一任務上一輪還在跑時直接略過本輪，避免慢指令堆疊；也供單次觸發（如 tmux hook）共用互斥鎖
 export function exclusive(name: string, task: () => Promise<void>, onError: OnError): () => Promise<void> {
 	let running = false;
 	return async () => {

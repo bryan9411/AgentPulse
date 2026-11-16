@@ -6,8 +6,7 @@ export function width(text: string): number {
 	return stringWidth(text);
 }
 
-// Paths and branch names may hold CJK characters, so every cut is by cell
-// width, never by `.length`.
+// 路徑與分支名稱可能包含全形中文字元，一律以終端機顯示寬度截斷，不可用 .length
 export function truncate(text: string, max: number): string {
 	if (max <= 0) return '';
 	if (stringWidth(text) <= max) return text;
@@ -33,14 +32,12 @@ export function padStart(text: string, size: number): string {
 	return ' '.repeat(Math.max(0, size - stringWidth(cut))) + cut;
 }
 
-// Left text truncated first; the right side is kept whole when it fits.
 export function spread(left: string, right: string, size: number): string {
 	const rightWidth = stringWidth(right);
 	if (rightWidth + 1 > size) return padEnd(left, size);
 	return padEnd(left, size - rightWidth - 1) + ' ' + right;
 }
 
-// Keeps the end of a path visible: the folder name matters more than its parents.
 export function truncateStart(text: string, max: number): string {
 	if (max <= 0) return '';
 	if (stringWidth(text) <= max) return text;
@@ -58,9 +55,7 @@ export function truncateStart(text: string, max: number): string {
 	return ELLIPSIS + out;
 }
 
-// Units a line may break between: runs of spaces, each wide (CJK)
-// character on its own, and runs of other characters (English words, paths)
-// kept together.
+// 將文字拆成可斷行單元：連續空白、單一寬字元（CJK），以及不可拆開的連續英文單字或路徑
 function breakUnits(text: string): string[] {
 	const units: string[] = [];
 	let run = '';
@@ -84,10 +79,7 @@ function breakUnits(text: string): string[] {
 	return units;
 }
 
-// Breaks between spaces and between CJK characters; an English word that
-// does not fit starts a new line, and one wider than a whole line (a long
-// path) is cut by cell width. Lines after the first get `max - hang` cells,
-// leaving room for an indent the caller adds.
+// 優先在空白或寬字元處換行；單元本身超過整行寬度（例如長路徑）才依顯示寬度硬截斷，續行寬度會扣掉 hang 縮排
 export function wrap(text: string, max: number, hang = 0): string[] {
 	if (max <= 0) return [];
 	const lines: string[] = [];
@@ -103,7 +95,6 @@ export function wrap(text: string, max: number, hang = 0): string[] {
 		const w = stringWidth(unit);
 		const space = /^\s/.test(unit);
 		if (used + w <= room()) {
-			// A line never starts with the space it was broken at.
 			if (space && used === 0) continue;
 			line += unit;
 			used += w;

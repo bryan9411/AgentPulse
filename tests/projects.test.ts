@@ -7,7 +7,7 @@ import {exec} from '../src/infra/exec.ts';
 import {projectRoot} from '../src/infra/git.ts';
 import {addProject, addProjectFromCwd, removeProject} from '../src/services/projects.ts';
 
-// Every git test runs in a throwaway repository under the system temp folder.
+// 測試用的臨時儲存庫一律建在系統暫存目錄下
 const base = realpathSync(mkdtempSync(join(tmpdir(), 'ap-git-')));
 const repo = join(base, '商店-api');
 const worktree = join(base, 'wt-feature');

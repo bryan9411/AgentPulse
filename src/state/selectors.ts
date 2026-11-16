@@ -8,7 +8,7 @@ import type {AddProjectDialog, AppState, Dialog, MergeDialog, Project, Row, Sess
 export const projectKey = (path: string) => `p:${path}`;
 export const sessionKey = (id: string) => `s:${id}`;
 
-// Before the first capture a live session counts as idle.
+// 第一次畫面擷取尚未完成前，活著的工作階段暫視為 idle
 export function sessionState(state: AppState, session: SessionSummary): AgentState {
 	return state.statuses[session.id]?.state ?? (session.dead ? (session.exitStatus === 0 ? 'done' : 'error') : 'idle');
 }
@@ -23,8 +23,6 @@ export function filterActive(state: AppState): boolean {
 
 const contains = (text: string, needle: string) => text.toLowerCase().includes(needle);
 
-// SPEC 5.8: the keyword matches the project name, branch or AI; `f` keeps
-// only sessions waiting on the user. Both apply together.
 function sessionVisible(state: AppState, project: Project, session: SessionSummary): boolean {
 	const needle = state.filter.text.trim().toLowerCase();
 	if (needle && !contains(project.name, needle) && !contains(session.branch, needle) && !contains(session.agent, needle)) {
@@ -39,7 +37,7 @@ export function visibleRows(state: AppState): Row[] {
 	const needle = state.filter.text.trim().toLowerCase();
 	for (const project of state.projects) {
 		const sessions = state.sessions.filter(s => s.project === project.path && sessionVisible(state, project, s));
-		// While filtering, an empty group is only kept when its own name matched.
+		// 篩選時若專案本身沒有符合的工作階段，只有專案名稱符合關鍵字才保留該群組列
 		if (filtering && sessions.length === 0 && (state.attentionOnly || !needle || !contains(project.name, needle))) continue;
 		const expanded = !state.collapsed.includes(project.path);
 		const conflict = (state.conflicts[project.path]?.length ?? 0) > 0;
@@ -68,8 +66,7 @@ export function windowTooSmall(state: AppState): boolean {
 	return w !== null && (w.columns < MIN_WINDOW.columns || w.rows < MIN_WINDOW.rows);
 }
 
-// SPEC 5.8: 0 for a session that is the only one of its project, branch and
-// AI; otherwise its place by creation (1, 2, 3…), shown from 2 on as "#2".
+// 同專案、同分支且同 AI 有多個工作階段時依建立時間排序編號，從第 2 個起顯示 "#2"
 export function sessionSeq(state: AppState, session: SessionSummary): number {
 	const twins = state.sessions
 		.filter(s => s.project === session.project && s.branch === session.branch && s.agent === session.agent)
@@ -77,7 +74,6 @@ export function sessionSeq(state: AppState, session: SessionSummary): number {
 	return twins.length < 2 ? 0 : twins.findIndex(s => s.id === session.id) + 1;
 }
 
-// "claude", or "claude #2" for the second of its kind.
 export function agentLabel(state: AppState, session: SessionSummary): string {
 	const seq = sessionSeq(state, session);
 	return seq >= 2 ? `${session.agent} #${seq}` : session.agent;
@@ -88,8 +84,7 @@ export function selectedSession(state: AppState): SessionSummary | null {
 	return row?.kind === 'session' ? row.session : null;
 }
 
-// The session is in the AI pane and the keyboard is there: the user sees it
-// (SPEC 5.3 "seen", 5.4 no notification).
+// 畫面正顯示在右側且焦點也在 AI 窗格時，視為使用者已經看到該工作階段
 export function isViewing(state: AppState, id: string): boolean {
 	return state.focus === 'ai' && selectedSession(state)?.id === id;
 }
@@ -106,38 +101,32 @@ export function statusCounts(state: AppState): StatusCounts {
 	return counts;
 }
 
-// The project the cursor is in, from a group row or one of its sessions.
 export function selectedProjectPath(state: AppState): string | null {
 	const row = selectedRow(state);
 	if (!row) return null;
 	return row.kind === 'project' ? row.project.path : row.session.project;
 }
 
-// SPEC 5.10: the note under the list covers the cursor's project only.
 export function selectedConflicts(state: AppState): readonly Conflict[] {
 	const path = selectedProjectPath(state);
 	return (path && state.conflicts[path]) || [];
 }
 
-// The heading's "N branches": every branch named in any of the conflicts.
 export function conflictBranchCount(conflicts: readonly Conflict[]): number {
 	return involvedBranches(conflicts);
 }
 
-// Dialogs with a text field. The merge dialog only has one while it waits
-// for a commit message.
+// 只有有文字輸入欄位的對話框才攔截一般字元；merge 僅在需要輸入 commit 訊息時接收文字
 export function acceptsText(dialog: Dialog): dialog is AddProjectDialog | WorktreeDialog | MergeDialog {
 	if (dialog.kind === 'merge') return dialog.plan !== null && dialog.plan.dirty > 0 && dialog.outcome === null && dialog.blocked === null;
 	return dialog.kind === 'add-project' || dialog.kind === 'worktree';
 }
 
-// The merge dialog has nothing left to confirm: enter and esc both close it.
 export function mergeSettled(dialog: MergeDialog): boolean {
 	return dialog.blocked !== null || dialog.outcome !== null;
 }
 
-// Where `w` would put the folder for what has been typed so far. With
-// nothing typed it is the parent folder, so the dialog keeps its height.
+// 尚未輸入名稱時先顯示父資料夾路徑，讓對話框行數保持固定不跳動
 export function worktreeDialogPath(dialog: WorktreeDialog): string {
 	return dialog.value.trim() ? worktreePath(dialog.project, dialog.value) : `${worktreeRoot(dialog.project)}/`;
 }

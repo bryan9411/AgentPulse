@@ -4,28 +4,21 @@ import {commandHasProgram} from './match.ts';
 import {findInputBox, isRule, lastNonEmpty, screenLines} from './screen.ts';
 import type {AccountStatus, AgentAdapter, ContextUsage, HostFs, ScreenState, SessionContext, SessionInfo} from './types.ts';
 
-// Every rule below comes from screens captured from Claude Code 2.1.325
-// (tests/fixtures/claude/) unless marked "not tested".
-
 const PROMPT = '❯';
 
-// Trust, tool approval and AskUserQuestion dialogs all end with this hint
-// and replace the input box while they are open.
+// 信任、工具授權與 AskUserQuestion 選單開啟時會取代輸入框，底行皆以此提示結尾
 const DIALOG_HINT = /\bEsc to cancel\b/;
 
-// Shown in the footer for as long as a turn runs, retries included.
 const BUSY_HINT = /\besc to interrupt\b/;
 
 const ERROR_LINES = [
 	/^(?:⏺\s*)?API Error\b/,
-	// Not tested: wording taken from reports of these failures.
+	// 未實測：錯誤訊息文字取自常見失敗回報
 	/^(?:⏺\s*)?(?:Invalid API key|OAuth token has expired|Please run \/login)\b/,
 	/^(?:⏺\s*)?(?:Credit balance is too low|Claude usage limit reached|You've hit your limit)\b/,
 ];
 
-// Only the reply to the latest message counts; an old error above an
-// answered prompt is history. The weekly-usage banner ("You've used 75% of
-// your weekly limit") sits in this region too and must not match.
+// 只看最後一則提示之後的回覆，避免更早之前的歷史錯誤或週額度提示橫幅造成誤判
 function lastReply(lines: readonly string[], boxTop: number): string[] {
 	let start = 0;
 	for (let i = boxTop - 1; i >= 0; i--) {
@@ -50,25 +43,22 @@ function classify(screen: string): ScreenState | null {
 	return 'idle';
 }
 
-// ctrl+z prints this, hands the tty back and waits for SIGCONT.
 const SUSPEND_NOTICE = 'Claude Code has been suspended';
 
 function isSuspended(screen: string): boolean {
 	const lines = screenLines(screen);
 	const at = lines.findLastIndex(line => line.includes(SUSPEND_NOTICE));
 	if (at === -1) return false;
-	// A redrawn input box below the notice means it is already running again.
+	// 暫停訊息下方若已重新畫出輸入框格線，代表程式已經恢復執行
 	return !lines.slice(at + 1).some(isRule);
 }
-
-// ---- HUD data (SPEC 6.8), checked against Claude Code 2.1.325 files ----
 
 const claudeJson = (fs: HostFs) => join(fs.home, '.claude.json');
 const projectsDir = (fs: HostFs) => join(fs.home, '.claude', 'projects');
 
 function accountStatus(fs: HostFs): AccountStatus {
 	if (envSet(fs, 'ANTHROPIC_API_KEY')) return 'signed-in';
-	// Only whether the key exists; the parsed object is dropped right here.
+	// 僅檢查鍵是否存在，不保留解析內容
 	const json = readJson(fs, claudeJson(fs));
 	return isRecord(json) && 'oauthAccount' in json ? 'signed-in' : 'not-set';
 }
@@ -86,7 +76,6 @@ function mcpServers(fs: HostFs, cwd: string): string[] | null {
 	]);
 }
 
-// Install folders of the plugins switched on in ~/.claude/settings.json.
 function enabledPluginDirs(fs: HostFs): string[] {
 	const settings = readJson(fs, join(fs.home, '.claude', 'settings.json'));
 	const enabled = isRecord(settings) && isRecord(settings.enabledPlugins) ? settings.enabledPlugins : {};
@@ -102,8 +91,6 @@ function enabledPluginDirs(fs: HostFs): string[] {
 	return dirs;
 }
 
-// Matches the count in Claude Code 2.1.325's /skills: user, project,
-// claude.ai-synced (one folder per sync bucket) and enabled plugins.
 function skillsCount(fs: HostFs, cwd: string): number {
 	const user = join(fs.home, '.claude', 'skills');
 	const synced = join(user, 'synced');
@@ -115,8 +102,7 @@ function skillsCount(fs: HostFs, cwd: string): number {
 	]);
 }
 
-// The log of a pinned session sits in a folder named after the cwd; rather
-// than re-implement that naming, look for the file name in every folder.
+// 不同專案或 worktree 對應的資料夾命名規則不同，已知 sessionId 時直接跨資料夾尋找檔名
 export function findClaudeLog(fs: HostFs, cwd: string, sessionId: string | null): string | null {
 	const root = projectsDir(fs);
 	if (sessionId) {
@@ -126,7 +112,7 @@ export function findClaudeLog(fs: HostFs, cwd: string, sessionId: string | null)
 		}
 		return null;
 	}
-	// Sessions from before M4 have no id: newest log for this folder.
+	// M4 以前建立的工作階段沒有 sessionId，改取該目錄下最新的 log
 	const dir = join(root, cwd.replace(/[^A-Za-z0-9]/g, '-'));
 	let best: {path: string; mtime: number} | null = null;
 	for (const name of fs.listDir(dir)) {
@@ -140,9 +126,8 @@ export function findClaudeLog(fs: HostFs, cwd: string, sessionId: string | null)
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Claude Code records each running process's current conversation here and
-// rewrites it on /clear (seen in 2.1.325; /resume not tested), which is how a
-// pinned session keeps up after the conversation is replaced.
+// Claude Code 會在執行 /clear 時更新 ~/.claude/sessions/<pid>.json 的 sessionId，
+// 透過這支檔案讓開頭固定的 sessionId 也能跟上切換後的新對話（/resume 未實測）
 export function liveConversation(fs: HostFs, pid: number | null): string | null {
 	if (!pid) return null;
 	const json = readJson(fs, join(fs.home, '.claude', 'sessions', `${pid}.json`));
@@ -151,8 +136,7 @@ export function liveConversation(fs: HostFs, pid: number | null): string | null 
 	return id && UUID.test(id) ? id : null;
 }
 
-// What the model was sent: cached and uncached input, not the output.
-// Matches the total Claude Code's /context shows (SPEC 5.6).
+// 只計入送給模型的輸入 token（含快取讀取與寫入），不含輸出，與 /context 顯示一致
 export function inputTokens(usage: unknown): number | null {
 	if (!isRecord(usage)) return null;
 	let total = 0;
@@ -172,12 +156,12 @@ function parseLine(line: string): Record<string, unknown> | null {
 		const entry: unknown = JSON.parse(line);
 		return isRecord(entry) ? entry : null;
 	} catch {
-		return null; // the first line of a tail, or last of a head, is usually cut
+		// 從檔案頭尾截段讀取時，首行或末行常只讀到半行，直接略過
+		return null;
 	}
 }
 
-// A reply of the main conversation. Subagent turns run in their own context
-// and local error lines carry the model "<synthetic>"; both are skipped.
+// 跳過子代理（isSidechain）與本機錯誤訊息（<synthetic>），只取主對話回覆
 function mainReply(entry: Record<string, unknown>): {model: string; effort: string | null; input: number | null} | null {
 	if (entry.type !== 'assistant' || entry.isSidechain === true) return null;
 	const model = stringField(entry.message, 'model');
@@ -189,14 +173,11 @@ function mainReply(entry: Record<string, unknown>): {model: string; effort: stri
 export type TailScan = {
 	model: string;
 	effort: string | null;
-	// Input of the latest reply.
 	input: number | null;
-	// Set when /compact (or auto-compact) ran after that reply: the size of
-	// the compacted history, until the next reply replaces the estimate.
+	// 最後一次回覆後若發生過 /compact，改以壓縮後大小估算，直到下次回覆覆蓋
 	compactedTo: number | null;
 };
 
-// Walks back from the end of the log to the latest reply.
 export function scanTail(tail: string): TailScan | null {
 	const lines = tail.split('\n');
 	let compactedTo: number | null = null;
@@ -217,7 +198,6 @@ export function scanTail(tail: string): TailScan | null {
 	return null;
 }
 
-// Input of the conversation's first reply: the SPEC 5.6 "system / MCP" base.
 export function firstReplyInput(head: string): number | null {
 	for (const line of head.split('\n')) {
 		if (!line.includes('"assistant"')) continue;
@@ -229,7 +209,7 @@ export function firstReplyInput(head: string): number | null {
 }
 
 const TAIL_BYTES = [256 * 1024, 4 * 1024 * 1024];
-// 2.1.325 writes 200–360 KB of setup before the first reply.
+// Claude Code 2.1.325 在第一筆回覆前會先寫入約 200～360 KB 的環境設定紀錄
 const HEAD_BYTES = [1024 * 1024, 4 * 1024 * 1024];
 
 function readGrowing<T>(read: (bytes: number) => string | null, steps: readonly number[], scan: (text: string) => T | null): T | null {
@@ -243,7 +223,7 @@ function readGrowing<T>(read: (bytes: number) => string | null, steps: readonly 
 	return null;
 }
 
-// A log's first reply never changes, so it is read once per file.
+// 每個 log 的第一筆回覆（基底）不會變動，快取起來避免重複讀 1 MB
 const baseCache = new Map<string, number>();
 
 function conversationBase(fs: HostFs, log: string): number | null {
@@ -269,13 +249,11 @@ function sessionInfo(fs: HostFs, ctx: SessionContext): SessionInfo {
 	const log = findClaudeLog(fs, ctx.cwd, id);
 	const scan = log ? readGrowing(bytes => fs.readTail(log, bytes), TAIL_BYTES, scanTail) : null;
 	if (log && scan) return {model: scan.model, effort: scan.effort, context: contextOf(fs, log, scan)};
-	// No reply yet: the model the user picked as default, if any.
 	const settings = readJson(fs, join(fs.home, '.claude', 'settings.json'));
 	return {model: stringField(settings, 'model'), effort: null, context: null};
 }
 
-// SPEC 6.8, from Anthropic's model table (2026-11); matched by prefix so
-// dated names fit too. Claude Code's /context shows 1m for claude-opus-5-5.
+// 模型視窗大小對照表，採前綴比對以涵蓋帶日期的模型名稱
 const CONTEXT_WINDOWS: Record<string, number> = {
 	'claude-fable-5': 1_000_000,
 	'claude-mythos-5': 1_000_000,

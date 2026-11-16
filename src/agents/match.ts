@@ -1,5 +1,4 @@
-// Agents installed through npm run as `node /path/to/bin/<name>` (or the
-// package's own entry file), so a match looks at every token, not just argv[0].
+// 透過 npm 安裝的 AI 常會以 `node /path/to/bin/<name>` 形式執行，所以需檢查前幾個 token 而非只看 argv[0]
 export function commandHasProgram(commandLine: string, names: readonly string[]): boolean {
 	const tokens = commandLine.trim().split(/\s+/).slice(0, 3);
 	return tokens.some(token => {

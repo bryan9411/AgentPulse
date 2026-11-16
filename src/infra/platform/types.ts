@@ -4,18 +4,13 @@ export type ProcessEntry = {pid: number; ppid: number; command: string};
 export type Platform = {
 	id: 'darwin' | 'wsl';
 	binDirs: readonly string[];
-	// Fire-and-forget system notification; false when it could not be sent.
 	notify(title: string, body: string): Promise<boolean>;
-	// null when the listing failed; the caller keeps its previous result.
+	// 查詢失敗時回傳 null，讓呼叫端沿用上一次結果
 	listeningPorts(): Promise<ListeningPort[] | null>;
 	processTree(): Promise<ProcessEntry[] | null>;
-	// Working folder of each given process; missing entries are unknown.
 	processCwds(pids: readonly number[]): Promise<Map<number, string>>;
-	// True when the kernel state of `pid` is stopped (e.g. ctrl+z / SIGTSTP).
+	// 檢查程序在系統中的狀態是否為暫停（例如 ctrl+z / SIGTSTP）
 	isProcessStopped(pid: number): Promise<boolean>;
-	// In the default browser; false when it could not be opened.
 	openUrl(url: string): Promise<boolean>;
-	// PATH as the user's own shell sets it up (nvm and the like); null when
-	// it could not be read in time.
 	loginShellPath(): Promise<string | null>;
 };

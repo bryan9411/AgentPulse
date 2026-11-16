@@ -26,12 +26,10 @@ export type HintContext = {
 	isDead?: boolean;
 	editingFilter?: boolean;
 	filtered?: boolean;
-	// The merge dialog only reports (refused, or done): nothing left to confirm.
 	mergeSettled?: boolean;
 };
 
-// Every list variant has the same number of lines so the list does not
-// jump as the cursor moves between group and session rows.
+// 各狀態的提示列行數保持一致，避免游標在專案與工作階段列之間移動時清單高度跳動
 export function listHints({focus, dialog, row, isDead, editingFilter, filtered, mergeSettled}: HintContext, lang: Lang = DEFAULT_LANG): string[] {
 	const h = strings(lang).hints;
 	if (dialog === 'add-project') return h.addProject;

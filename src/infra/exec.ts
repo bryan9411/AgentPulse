@@ -35,8 +35,7 @@ function isNotFound(error: unknown): boolean {
 	return code === 'ENOENT';
 }
 
-// Many pollers share one machine; a cap keeps a slow tmux or git from being
-// hammered by dozens of queued calls at once.
+// 多個背景輪詢共用同一個執行器，限制同時執行數量避免把 tmux 或 git 壓垮
 export function createExecutor(concurrency = DEFAULT_CONCURRENCY): Executor {
 	let active = 0;
 	const waiting: Array<() => void> = [];
@@ -115,8 +114,7 @@ export function exec(cmd: string[], opts?: ExecOptions): Promise<ExecResult> {
 	return executor.run(cmd, opts);
 }
 
-// For `tmux attach`: the child must own the real terminal, so stdio is
-// inherited and there is deliberately no timeout.
+// 執行 `tmux attach` 等需要接管終端機的互動指令，直接繼承 stdio 且不設逾時
 export function execInteractive(cmd: string[], opts: {env?: Record<string, string | undefined>} = {}): number {
 	try {
 		const result = Bun.spawnSync({cmd, env: opts.env, stdin: 'inherit', stdout: 'inherit', stderr: 'inherit'});
@@ -126,8 +124,7 @@ export function execInteractive(cmd: string[], opts: {env?: Record<string, strin
 	}
 }
 
-// Finder launches inherit a minimal PATH on some setups, so fall back to the
-// platform's usual install folders.
+// 從 Finder 或 App 啟動時繼承到的 PATH 通常很精簡，找不到時再依平台預設路徑補找
 export function resolveBin(name: string, fallbackDirs: readonly string[], path = process.env.PATH): string | null {
 	const onPath = Bun.which(name, {PATH: path ?? ''});
 	if (onPath) return onPath;
@@ -138,7 +135,7 @@ export function resolveBin(name: string, fallbackDirs: readonly string[], path =
 	return null;
 }
 
-// The shell's entries win; anything only in the inherited PATH is kept after them.
+// 優先保留 login shell 的 PATH 順序，只補上目前環境才有的路徑
 export function mergePath(preferred: string, current: string): string {
 	const seen = new Set<string>();
 	const out: string[] = [];

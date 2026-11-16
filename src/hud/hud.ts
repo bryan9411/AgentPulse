@@ -6,8 +6,7 @@ import {COLORS, GLYPHS, stateGlyph, type Glyphs} from '../ui/theme.ts';
 import {padEnd, truncateStart, width as cells} from '../ui/text.ts';
 import {fitSegments, SEPARATOR, type Segment} from './fit.ts';
 
-// Everything lines 2–3 show (SPEC 5.5). null: looked and found nothing
-// usable, shown as —; a missing `details` means not read yet.
+// 資訊列第 2～3 行資料：null 表示已檢查但無資料（顯示 —）；details 未定義表示尚未讀取完成
 export type HudDetails = {
 	model: string | null;
 	effort: string | null;
@@ -16,10 +15,8 @@ export type HudDetails = {
 	rules: {name: string; present: boolean} | null;
 	git: {branch: string | null; added: number; removed: number; untracked: number} | null;
 	ports: readonly number[];
-	// ms; null when unknown.
 	createdAt: number | null;
 	changedAt: number | null;
-	// Line 4 (SPEC 5.6); null before the first reply or when unsupported.
 	context: ContextView | null;
 };
 
@@ -29,7 +26,6 @@ export type HudSession = {
 	cwd: string;
 	dead: boolean;
 	exitStatus: number | null;
-	// null until the first capture.
 	state?: AgentState | null;
 	stalled?: boolean;
 	details?: HudDetails;
@@ -41,14 +37,12 @@ export type HudInput = {
 	session?: HudSession | null;
 	glyphs?: Glyphs;
 	now?: number;
-	// Percent at which the context figure turns the warning colour.
 	contextWarnAt?: number;
 	lang?: Lang;
 };
 
 type Part = {text: string; color: string};
 
-// Right end of line 1 (SPEC 5.5). Only the glyph and warnings are coloured.
 function statusParts(se: HudSession, glyphs: Glyphs, lang: Lang): Part[] {
 	const t = strings(lang);
 	if (se.dead) return [{text: t.hud.exited(String(se.exitStatus ?? '?')), color: se.exitStatus === 0 ? COLORS.dim : COLORS.error}];
@@ -72,7 +66,6 @@ const NO_BOLD = '\x1b[22m';
 
 const UNKNOWN = '—';
 
-// Compact age: 45s, 12m, 3h05m, 2d4h.
 export function formatDuration(ms: number, lang: Lang = DEFAULT_LANG): string {
 	const u = strings(lang).hud.units;
 	const sec = Math.max(0, Math.floor(ms / 1000));
@@ -120,7 +113,6 @@ export function progressSegments(se: HudSession, now: number, lang: Lang = DEFAU
 	];
 }
 
-// 950 → 950, 37125 → 37.1k, 412000 → 412k, 1000000 → 1.0m.
 export function formatTokens(n: number): string {
 	const v = Math.max(0, Math.round(n));
 	if (v < 1000) return String(v);
@@ -132,8 +124,7 @@ export function formatTokens(n: number): string {
 const BAR_MIN = 8;
 const BAR_MAX = 30;
 
-// Line 4 (SPEC 5.6), exactly `size` cells. When space runs out the bar
-// shrinks first, then the breakdown goes, then only the headline is left.
+// 第 4 行寬度不足時先縮短進度條，再拿掉明細，最後只留開頭的百分比數字
 export function contextLine(view: ContextView | null, size: number, glyphs: Glyphs, warnAt = 80, lang: Lang = DEFAULT_LANG): string {
 	if (size <= 0) return '';
 	const t = strings(lang).hud;
@@ -184,7 +175,6 @@ export function contextLine(view: ContextView | null, size: number, glyphs: Glyp
 	return `${out}${' '.repeat(Math.max(0, size - used))}`;
 }
 
-// Fitted fields joined by the separator, padded to exactly `size` cells.
 export function renderSegments(segments: readonly Segment[], size: number): string {
 	const fitted = fitSegments(segments, size);
 	const used = cells(fitted.map(s => s.text).join(SEPARATOR));
@@ -192,8 +182,7 @@ export function renderSegments(segments: readonly Segment[], size: number): stri
 	return `${body}${' '.repeat(Math.max(0, size - used))}`;
 }
 
-// Each line is exactly `size` cells of visible text with one leading space,
-// so a repaint fully overwrites the previous one.
+// 每行開頭留 1 格空白並補齊至剛好 size 欄，重畫時才能完整覆蓋舊內容
 export function hudLines(input: HudInput, size: number): string[] {
 	const inner = Math.max(0, size - 1);
 	const lang = input.lang ?? DEFAULT_LANG;
@@ -207,7 +196,7 @@ export function hudLines(input: HudInput, size: number): string[] {
 		const left = `${se.branch} · ${input.project.name} · ${se.agent}`;
 		const parts = statusParts(se, input.glyphs ?? GLYPHS.unicode, lang);
 		const rightWidth = cells(parts.map(p => p.text).join(''));
-		// The status is dropped whole rather than cut when the pane is narrow.
+		// 空間不夠時整個右側狀態拿掉，不硬截斷文字
 		const shown = rightWidth > 0 && inner > rightWidth;
 		const leftWidth = shown ? inner - rightWidth - 1 : inner;
 		const right = shown ? ` ${parts.map(p => `${fg(p.color)}${p.text}`).join('')}` : '';
@@ -231,7 +220,7 @@ export function hudLines(input: HudInput, size: number): string[] {
 }
 
 export function hudFrame(lines: string[]): string {
-	// Hide cursor, home, draw, clear the rest so a taller old frame leaves nothing behind.
+	// 隱藏游標、移回左上角並清除游標後殘留內容，避免上一幀較高時留下殘影
 	return `\x1b[?25l\x1b[H${lines.map(line => `${line}\x1b[K`).join('\r\n')}\x1b[J`;
 }
 
@@ -241,15 +230,12 @@ export type TopBarInput = {
 	sessions: number;
 	counts?: Record<AgentState, number>;
 	glyphs?: Glyphs;
-	// SPEC 5.7, right-aligned; null while not checked yet.
 	accounts?: readonly AccountMark[];
 	lang?: Lang;
 };
 
-// Only states worth a glance; idle is the rest.
 const TOP_BAR_STATES: readonly AgentState[] = ['needs-approval', 'error', 'running', 'done'];
 
-// tmux status format (SPEC 3, 6.2). Glyph and count take the state colour.
 export function topBarFormat(input: TopBarInput): string {
 	const t = strings(input.lang ?? DEFAULT_LANG);
 	const glyphs = input.glyphs ?? GLYPHS.unicode;

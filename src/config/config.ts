@@ -43,8 +43,7 @@ const num = (value: unknown, fallback: number, min: number, max: number) =>
 
 const bool = (value: unknown, fallback: boolean) => (typeof value === 'boolean' ? value : fallback);
 
-// Hand-edited files are expected; a wrong field falls back to its default
-// instead of rejecting the whole file.
+// 允許使用者手動編輯設定檔；單一欄位格式錯誤時只回退該欄位預設值，不整份拒讀
 export function normalizeConfig(raw: unknown): Config {
 	const d = DEFAULT_CONFIG;
 	if (!isRecord(raw)) return structuredClone(d);
@@ -72,8 +71,7 @@ export function normalizeConfig(raw: unknown): Config {
 
 export type LoadResult =
 	| {status: 'ok' | 'created'; config: Config}
-	// The file is kept untouched so the user's edits are not lost; saving is
-	// refused until it parses again.
+	// 保留損壞的檔案不覆蓋，以免蓋掉使用者手動編輯內容；格式修好前拒絕寫回
 	| {status: 'invalid'; config: Config; error: string};
 
 export function loadConfig(dir: string): LoadResult {

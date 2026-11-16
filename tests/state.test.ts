@@ -183,7 +183,6 @@ describe('state', () => {
 		expect(listHints({focus: 'list', dialog: null, row: 'session', editingFilter: true}).join(' ')).toContain('esc clear');
 		expect(listHints({focus: 'list', dialog: 'close-session', row: 'session'})).toEqual(['enter close · esc cancel']);
 		expect(listHints({focus: 'list', dialog: 'remove-project', row: 'project'})).toEqual(['enter remove · esc cancel']);
-		// The sidebar is 36 columns with one column of padding on each side.
 		for (const lang of ['en', 'zh-TW'] as const) {
 			for (const row of ['session', 'project'] as const) {
 				for (const filtered of [false, true]) {
@@ -228,7 +227,6 @@ describe('telling apart AIs on the same branch', () => {
 		const label = (id: string) => agentLabel(s, s.sessions.find(x => x.id === id)!);
 		expect(['a', 'b', 'c', 'x', 'y'].map(label)).toEqual(['claude', 'claude #2', 'claude #3', 'agy', 'claude']);
 		expect(sessionSeq(s, s.sessions.find(x => x.id === 'x')!)).toBe(0);
-		// Closing the first moves the rest up.
 		const closed = A.setSessions(s, all.filter(x => x.id !== 'a'));
 		expect(agentLabel(closed, closed.sessions.find(x => x.id === 'b')!)).toBe('claude');
 		expect(agentLabel(closed, closed.sessions.find(x => x.id === 'c')!)).toBe('claude #2');
@@ -293,7 +291,6 @@ describe('worktree, merge and open dialogs', () => {
 		let s = A.openMerge(onWorktree());
 		expect(s.dialog).toMatchObject({kind: 'merge', busy: true, plan: null, blocked: null, outcome: null});
 		expect(s.dialog && acceptsText(s.dialog)).toBe(false);
-		// A check for some other session must not land in this dialog.
 		expect(A.setMergeCheck(s, 'other', {ok: true, plan})).toBe(s);
 		const refused = A.setMergeCheck(s, 'w1', {ok: false, error: {key: 'aiRunning'}});
 		expect(refused.dialog).toMatchObject({busy: false, blocked: {key: 'aiRunning'}});
@@ -301,7 +298,6 @@ describe('worktree, merge and open dialogs', () => {
 		expect(mergeSettled(refused.dialog)).toBe(true);
 		s = A.setMergeCheck(s, 'w1', {ok: true, plan});
 		expect(s.dialog).toMatchObject({busy: false, plan: {branch: 'feat/x'}});
-		// Nothing to commit: no text field, typing is ignored.
 		expect(A.editDialog(s, v => v + 'x')).toBe(s);
 	});
 
@@ -369,12 +365,10 @@ describe('session status in state', () => {
 		s = A.applyStatuses(s, {a1: status('needs-approval'), a2: status('idle')}, ['a1']);
 		expect(s.attention).toEqual(['a1']);
 		expect(isBlinking(s, 'a1')).toBe(true);
-		// Looking at it in the AI pane stops the blink at once.
 		const viewing = A.setFocus(A.selectSession(s, 'a1'), 'ai', false);
 		expect(isViewing(viewing, 'a1')).toBe(true);
 		expect(isBlinking(viewing, 'a1')).toBe(false);
 		expect(A.applyStatuses(viewing, viewing.statuses, []).attention).toEqual([]);
-		// Answered elsewhere: no longer an alert state.
 		expect(A.applyStatuses(s, {a1: status('running'), a2: status('idle')}, []).attention).toEqual([]);
 	});
 

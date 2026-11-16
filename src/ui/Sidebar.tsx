@@ -26,8 +26,7 @@ const ADD_PROJECT_DIALOG_ROWS = 5;
 
 const projectName = (projects: Project[], path: string) => projects.find(p => p.path === path)?.name ?? path;
 
-// The M6 dialogs vary in height, so they are laid out as data first; null
-// for the fixed-height ones, which are components.
+// M6 對話框高度會依內容變動，先轉成行資料以便計算高度；固定高度的對話框則直接回傳 null 由元件渲染
 function dialogLines(dialog: Dialog, projects: Project[], width: number, lang: Lang): Line[] | null {
 	if (dialog.kind === 'merge') return mergeLines(dialog, lang, width);
 	if (dialog.kind === 'open-url') return openUrlLines(dialog, lang, width);
@@ -52,7 +51,6 @@ function DialogView({dialog, projects, width, lang}: {dialog: Dialog; projects: 
 	return <NewSessionDialog dialog={dialog} projectName={projectName(projects, dialog.project)} width={width} lang={lang} />;
 }
 
-// SPEC 3: the line under the title doubles as the `/` hint and the field.
 function FilterLine({state, width, glyphs}: {state: AppState; width: number; glyphs: Glyphs}) {
 	const {text, editing} = state.filter;
 	const t = strings(state.config.language).list;
@@ -100,16 +98,14 @@ export function Sidebar({state, columns, rows}: Props) {
 		mergeSettled: state.dialog?.kind === 'merge' && mergeSettled(state.dialog),
 	}, lang);
 	const lines = state.dialog ? dialogLines(state.dialog, state.projects, inner, lang) : null;
-	// A dialog needs the room, and the note would only distract from it.
 	const conflicts = state.dialog ? [] : conflictLines(selectedConflicts(state), lang, inner);
-	// The answer to the last key outranks a standing notice.
+	// 最後一次按鍵的即時回饋（flash）優先於常駐通知（notice）
 	const message = state.flash ?? state.notice;
 	const notice = message ? wrap(messageText(lang, message), inner).map(text => line(text)) : [];
 	const footerRows = 1 + hints.length + notice.length + conflicts.length + dialogRows(state.dialog, lines);
 	const listHeight = Math.max(0, rows - HEADER_ROWS - footerRows);
 
-	// overflow: in a very short window a tall dialog clips the hints rather
-	// than pushing the screen into scrolling.
+	// 視窗過矮時寧可裁掉底部按鍵提示，也不要把整個畫面推出捲軸
 	return (
 		<Box flexDirection="column" width={columns} height={rows} paddingX={1} overflow="hidden">
 			<Text color={COLORS.dim}>{padEnd(t.title, inner)}</Text>

@@ -91,7 +91,6 @@ const SESSION_POLL_MS = 1000;
 const STATUS_POLL_MS = 1000;
 const BLINK_MS = 500;
 const PANE_DISCOVERY_MS = 200;
-// SPEC 6.6.
 const INFO_POLL_MS = 2000;
 const CLOCK_MS = 1000;
 const GIT_POLL_MS = 5000;
@@ -144,21 +143,19 @@ const reportError = (name: string, error: unknown) => logError(`${name}: ${Strin
 export function startController({store, ui, agents, configDir, pid}: Context): Controller {
 	const agentsConf = confPaths(configDir).agents;
 	let panes: UiPanes | null = null;
-	// The session the embedded client was last switched to by us.
+	// 記錄最後切換到內嵌 client 的工作階段 ID，避免重複執行 switch-client
 	let shown: string | null = null;
 	let hudWidth = 0;
 	let lastFrame = '';
 	let lastTopBar = '';
-	// While a popup is up, HUD writes show through it (M6), so they wait.
+	// 浮動視窗開啟期間暫停更新 HUD，否則直接寫入 tty 會穿透蓋住浮動視窗
 	let popupOpen = false;
 	let configMtime = mtimeMs(configFile(configDir));
 	const scheduler = createScheduler(reportError);
 	const timers: Array<ReturnType<typeof setInterval>> = [];
-	// The pane process of each live session, for SIGCONT.
 	const pids = new Map<string, number>();
 	const resumeSent = new Map<string, number>();
 	const notified: NotifyLog = new Map();
-	// Latest capture per session, for localhost:<port> mentions (SPEC 5.5).
 	const screens = new Map<string, string>();
 	const fs = hostFs();
 
@@ -197,7 +194,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		store.set(s => A.setFocus(A.setWindow(s, snap.windowWidth, snap.windowHeight), snap.sidebarActive ? 'list' : 'ai', snap.zoomed));
 		paintChrome(force || resized);
 	};
-	// A tmux hook fired: sizes or focus changed, so repaint even if the text is identical.
+	// hook 觸發表示尺寸或焦點有變動，即使文字內容相同也要強制重繪
 	const forcedLayout = exclusive('layout', () => refreshLayout(true), reportError);
 
 	const refreshPlaceholder = async () => {
@@ -205,7 +202,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		await redrawPlaceholder(ui, agents, panes, aiPlaceholderCommand(store.get().config.language));
 	};
 
-	// The exit line lives in the AI server's config, outside Ink (SPEC 3.3).
+	// 結束提示文字寫在 AI server 的 tmux 設定裡，切換語言時需重新寫檔並載入
 	const applyLanguage = async (lang: Lang) => {
 		writeTextAtomic(agentsConf, agentsTmuxConf(lang));
 		await reloadSessionConf(agents, agentsConf);
@@ -241,17 +238,15 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		const hadSessions = before.length > 0;
 		store.set(s => A.setSessions(s, sessions));
 		void pollNewFacts();
-		// A folder joined or left: the conflict note should not lag 15 s behind.
+		// 工作階段新增或關閉時立即重掃衝突，不必等 15 秒輪詢
 		if (store.get().sessions !== before) void pollRadar();
-		// The embedded client exits with the last session; drop its label too.
+		// 最後一個工作階段關閉時內嵌 client 會退回佔位畫面，同步清掉邊框標題
 		if (sessions.length === 0 && hadSessions) {
 			shown = null;
 			if (panes) await clearLabel(ui, panes);
 		}
 	};
 
-	// SPEC 5.3: capture every live session, classify it, wake it if it
-	// stopped itself on ctrl+z, then notify on entering approval or error.
 	const observe = async (session: SessionSummary, now: number, seen: boolean, prev: SessionStatus | null) => {
 		if (session.dead) {
 			return nextStatus(prev, {dead: true, exitStatus: session.exitStatus, screenState: null, screen: null, now, seen});
@@ -260,8 +255,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		if (screen === null) return prev;
 		screens.set(session.id, screen);
 		const adapter = getAgent(session.agent);
-		// Dead panes never get here: an exited Claude Code still shows its old
-		// suspend notice (M0).
+		// 已結束的窗格不會進到這裡（例如 Claude 結束後畫面上仍可能殘留更早之前的暫停訊息）
 		if (adapter?.isSuspended(screen)) {
 			const pid = pids.get(session.id);
 			if (pid && resumeAllowed(resumeSent, session.id, now)) {
@@ -318,8 +312,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		}
 	};
 
-	// ---- HUD data (SPEC 5.5, 6.6). Each keeps the last result on failure. ----
-
+	// 失敗時沿用舊結果，不覆蓋或清空既有顯示資料
 	const refreshInfo = async () => {
 		const session = selectedSession(store.get());
 		const adapter = session && getAgent(session.agent);
@@ -386,7 +379,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		store.set(s => A.setAccounts(s, accounts));
 	};
 
-	// SPEC 5.10: only projects whose sessions work in two or more folders.
+	// 只掃描橫跨兩個以上工作資料夾的專案
 	const refreshConflicts = async () => {
 		const folders = new Map<string, Map<string, string>>();
 		for (const session of store.get().sessions) {
@@ -407,14 +400,13 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		store.set(s => A.setConflicts(s, conflicts));
 	};
 
-	// Toggles only while something blinks, so an idle list is not redrawn.
+	// 只在有警告閃爍項目時切換相位，閒置清單不會白白重繪
 	const blink = () => {
 		const state = store.get();
 		store.set(s => A.setBlink(s, state.attention.length > 0 ? !state.blinkOn : true));
 	};
 
-	// Latest selection wins: a burst of j presses ends on the last row
-	// without queueing a switch for every row passed on the way.
+	// 快速連按 j/k 時只切換到最後選中的工作階段，不為途中經過的每一列排隊切換
 	let syncing: Promise<void> | null = null;
 	let again = false;
 	const syncAi = async (verify = false): Promise<void> => {
@@ -448,7 +440,6 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		if (selected !== lastSelected) {
 			lastSelected = selected;
 			void syncAi();
-			// The HUD should not wait a full interval after moving the cursor.
 			void pollInfo();
 			void pollGit();
 			void pollPorts();
@@ -456,7 +447,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 	});
 	const offSignal = onRefreshSignal(() => void forcedLayout());
 
-	// The launcher creates the HUD and AI panes right after this process starts.
+	// launcher 在啟動側欄後才會建立 HUD 與 AI 窗格，因此短間隔輪詢直到偵測到窗格
 	const discover = setInterval(() => {
 		void (async () => {
 			if (panes) return;
@@ -476,14 +467,14 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 	const pollInfo = scheduler.every(INFO_POLL_MS, 'info', refreshInfo);
 	const pollGit = scheduler.every(GIT_POLL_MS, 'git', refreshGit);
 	const pollPorts = scheduler.every(PORTS_POLL_MS, 'ports', refreshPorts);
-	// A new session gets its facts on the next sessions poll, not a minute later.
+	// 新工作階段建好後立刻抓一次環境資料，不必等 60 秒輪詢
 	const pollNewFacts = exclusive('facts-new', () => refreshFacts(true), reportError);
 	scheduler.every(FACTS_POLL_MS, 'facts', () => refreshFacts(false));
 	const pollAccounts = scheduler.every(ACCOUNTS_POLL_MS, 'accounts', refreshAccounts);
 	void pollAccounts();
 	const pollRadar = scheduler.every(RADAR_POLL_MS, 'radar', refreshConflicts);
 	timers.push(setInterval(blink, BLINK_MS));
-	// "up 42m" and "output 3s ago" age without any state change.
+	// 讓「已開 42分」「3秒前有輸出」等相對時間隨時間經過持續更新
 	timers.push(setInterval(() => paintChrome(false), CLOCK_MS));
 	void reloadSessionConf(agents, agentsConf).then(() => pollSessions());
 
@@ -571,7 +562,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		await focusAiPane(session.id, zoom);
 	};
 
-	// Sized to the AI pane so the first frame is not drawn for another size.
+	// 依目前右側 AI 窗格大小啟動，避免第一幀就用錯誤寬度排版
 	const startSession = async (opts: {agent: string; project: string; cwd: string; base?: string}): Promise<CreateResult> => {
 		const size = panes && (await readAiPane(ui, panes));
 		return createSession(agents, {
@@ -583,7 +574,6 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		});
 	};
 
-	// A new AI is opened to be talked to.
 	const enterSession = async (id: string) => {
 		await refreshSessions();
 		store.set(s => A.closeDialog(A.selectSession(s, id)));
@@ -616,7 +606,6 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		await enterSession(result.id);
 	};
 
-	// True once the session is gone, whoever closed it.
 	const closeAndForget = async (id: string): Promise<boolean> => {
 		if (!(await closeSession(agents, id)) && (await sessionExists(agents, id))) return false;
 		if (shown === id) shown = null;
@@ -625,7 +614,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 
 	const afterClose = async () => {
 		await syncAi(true);
-		// The fallback placeholder carries the language of when it was attached.
+		// 退回佔位畫面時順便以目前語言重繪提示
 		if (shown === null) await refreshPlaceholder();
 	};
 
@@ -639,8 +628,6 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		await afterClose();
 	};
 
-	// ---- Worktrees, merge, diff, open (SPEC 5.9–5.11) ----
-
 	const flash = (message: Message) => store.set(s => A.setFlash(s, message));
 
 	const submitWorktree = async (dialog: WorktreeDialog, agent: string) => {
@@ -653,7 +640,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		}
 		const result = await startSession({agent, project: dialog.project, cwd: made.path, base: made.base});
 		if (!result.ok) {
-			// Not rolled back: removing a worktree and its branch is the user's call.
+			// AI 啟動失敗時不自動回滾刪除資料夾與分支，保留給使用者自行處理
 			logError(`worktree ${made.path}: ${messageText('en', result.error)}`);
 			store.set(s => A.setDialogError(s, msg('worktreeNoAi')));
 			return;
@@ -671,11 +658,11 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 
 	const submitMerge = async (dialog: MergeDialog) => {
 		const id = dialog.session.id;
-		// The session as it is now: the AI may have started working since m.
+		// 以最新清單重抓 session，避免開啟對話框期間 AI 突然開始執行
 		const target = mergeTarget(store.get().sessions.find(s => s.id === id) ?? dialog.session);
 		const outcome = await runMerge(target, dialog.value, {closeSession: () => closeAndForget(id)});
 		if (outcome.kind === 'blocked') {
-			// What the dialog shows is out of date; lay the steps out again.
+			// 狀態已過期，重算並更新確認對話框顯示的步驟與阻擋原因
 			const check = await planMerge(target);
 			store.set(s => A.setMergeCheck(s, id, check));
 			if (check.ok) store.set(s => A.setDialogError(s, outcome.error));
@@ -695,7 +682,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		return ok;
 	};
 
-	// One popup at a time: tmux holds this call until the user closes it.
+	// 同時只開一個浮動視窗，tmux 會等到使用者關閉視窗才返回
 	const showDiff = exclusive(
 		'diff',
 		async () => {
@@ -749,7 +736,6 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 			const dialog = store.get().dialog;
 			if (!dialog || dialog.busy) return;
 			if (dialog.kind === 'merge') {
-				// Refused, or done: there is only something to read.
 				if (mergeSettled(dialog)) store.set(A.closeDialog);
 				if (mergeSettled(dialog) || !dialog.plan) return;
 				if (dialog.plan.dirty > 0 && !dialog.value.trim()) {
@@ -784,7 +770,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 				logError(`dialog ${dialog.kind}: ${String(error)}`);
 				store.set(s => A.setDialogError(s, msg('failed')));
 			} finally {
-				// Keys are ignored while busy, so it must never be left set.
+				// 忙線時會鎖住按鍵，結束後必須確保解除 busy 旗標
 				store.set(s => (s.dialog === working ? A.setDialogBusy(s, false) : s));
 			}
 		},
@@ -802,8 +788,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		openWorktree() {
 			const project = selectedProjectPath(store.get());
 			if (!project) return;
-			// Opened at once so the next keys are typed into it; the branch it
-			// will be cut from is filled in when git answers.
+			// 先開啟對話框讓使用者立刻打字，來源分支背景查完再補顯示
 			store.set(s => A.openWorktree(s, agentChoices()));
 			void currentBranch(project).then(base => {
 				if (base) store.set(s => A.setWorktreeBase(s, project, base));
@@ -843,7 +828,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		},
 		toggleLanguage() {
 			const lang = nextLang(store.get().config.language);
-			// Re-read so an edit made in another window is not overwritten.
+			// 寫回前重讀一次，避免蓋掉使用者在其他視窗手動修改的設定
 			const loaded = loadConfig(configDir);
 			if (loaded.status === 'invalid') {
 				store.set(s => A.setNotice(A.setLanguage(s, lang), msg('languageNotSaved')));

@@ -54,13 +54,11 @@ describe('wrap', () => {
 
 	test('a word wider than the line is cut by cell width', () => {
 		expect(wrap('/w/shop-api.worktrees/feat/checkout', 12)).toEqual(['/w/shop-api.', 'worktrees/fe', 'at/checkout']);
-		// CJK has no spaces to break at and is two cells per character.
 		expect(wrap('專案原本的資料夾有還沒提交的修改', 10)).toEqual(['專案原本的', '資料夾有還', '沒提交的修', '改']);
 		expect(wrap('已合併到 main，但清理停下來了', 12)).toEqual(['已合併到', 'main，但清理', '停下來了']);
-		// CJK breaks between characters, so a short English word does not end up alone.
+		// 中文字之間可斷行，避免為了保護整段文字而把短英文單字硬擠成獨立一行
 		expect(wrap('AI 在那個資料夾裡改，不會動到專案原本的資料夾。', 28)).toEqual(['AI 在那個資料夾裡改，不會動', '到專案原本的資料夾。']);
 		expect(wrap('專案原本的資料夾要先切回 main（現在在 feat/x）。', 28)).toEqual(['專案原本的資料夾要先切回', 'main（現在在 feat/x）。']);
-		// A word that does not fit moves down whole instead of being split.
 		expect(wrap('Folder already exists: /w/shop.worktrees/x', 24)).toEqual(['Folder already exists:', '/w/shop.worktrees/x']);
 	});
 

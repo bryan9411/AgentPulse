@@ -1,12 +1,10 @@
-// Shared parsing for full-screen agent TUIs captured with `capture-pane -p`.
-
 export function screenLines(screen: string): string[] {
 	const lines = screen.split('\n').map(line => line.trimEnd());
 	while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
 	return lines;
 }
 
-// Box borders are long runs of U+2500. Short runs show up inside answers.
+// 輸入框格線為連續長橫線（U+2500），避免誤判回覆內容中的短分隔線
 export function isRule(line: string): boolean {
 	return /^─{20,}$/.test(line);
 }
@@ -14,12 +12,10 @@ export function isRule(line: string): boolean {
 export type InputBox = {
 	top: number;
 	bottom: number;
-	// Non-empty lines below the box (the agent's status / hint row).
 	footer: string[];
 };
 
-// Footers are one or two rows; anything taller below the last border is a
-// dialog (approval prompt, question), not the idle input box.
+// 正常提示列只有 1～2 行；底下若超過這個行數通常是授權或提問選單而非輸入框
 const MAX_FOOTER_LINES = 3;
 
 function lastRuleBefore(lines: readonly string[], end: number): number {
@@ -27,9 +23,7 @@ function lastRuleBefore(lines: readonly string[], end: number): number {
 	return -1;
 }
 
-// The input box is the last two borders on screen with the prompt glyph
-// right under the upper one. Earlier borders around echoed user messages
-// look the same, so only the bottom-most pair counts.
+// 畫面中先前回顯的使用者訊息也可能有上下格線，因此只取最底部那一組作為輸入框
 export function findInputBox(lines: readonly string[], prompt: string): InputBox | null {
 	const bottom = lastRuleBefore(lines, lines.length);
 	if (bottom < 1) return null;
@@ -37,8 +31,7 @@ export function findInputBox(lines: readonly string[], prompt: string): InputBox
 	if (footer.length > MAX_FOOTER_LINES) return null;
 	const top = lastRuleBefore(lines, bottom);
 	if (top < 0 || top + 1 >= bottom) return null;
-	// Claude Code puts a no-break space after the prompt glyph in the box
-	// and a plain one in echoed messages.
+	// Claude Code 在輸入框提示符號後放的是不換行空白（NBSP），回顯訊息則是普通空白
 	const first = lines[top + 1] ?? '';
 	if (first !== prompt && !first.startsWith(`${prompt} `) && !first.startsWith(`${prompt} `)) return null;
 	return {top, bottom, footer};

@@ -1,8 +1,6 @@
 import type {ContextUsage} from '../../agents/types.ts';
 
-// SPEC 5.6: the config file's `contextWindows` wins, then the adapter's
-// table. Both match exactly first, then by the longest prefix, so
-// "claude-haiku-4-5-20251001" finds "claude-haiku-4-5".
+// 設定檔的 contextWindows 優先，其次使用 adapter 內建表；皆先比對完全相同名稱，再比對最長前綴
 export function contextWindow(
 	model: string | null,
 	builtIn: Readonly<Record<string, number>>,
@@ -21,8 +19,6 @@ export function contextWindow(
 	return null;
 }
 
-// What line 4 shows. With a window the three shares are whole percents that
-// add up to 100; without one the parts are token counts and `percent` is null.
 export type ContextView = {
 	percent: number | null;
 	system: number | null;
@@ -37,7 +33,7 @@ export function contextView(usage: ContextUsage, window: number | null): Context
 	if (!window) return {percent: null, system: base, chat: base === null ? null : used - base, free: null, used};
 	const pct = (n: number) => Math.min(100, Math.round((n / window) * 100));
 	const percent = pct(used);
-	// Rounded from the same total so the parts never disagree with the headline.
+	// system 與 chat 皆從同一個總百分比拆出，避免四捨五入後總和與標題數字不一致
 	const system = base === null ? null : Math.min(pct(base), percent);
 	return {percent, system, chat: system === null ? null : percent - system, free: 100 - percent, used};
 }

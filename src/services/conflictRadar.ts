@@ -1,17 +1,14 @@
 import {committedFiles, currentBranch, headCommit, statusEntries} from '../infra/git.ts';
 
-// SPEC 5.10.
-
 export type FolderChanges = {cwd: string; branch: string; files: readonly string[]};
 
 export type Conflict = {file: string; branches: string[]};
 
-// Files touched in two or more working folders. Most widely shared first.
 export function findConflicts(folders: readonly FolderChanges[]): Conflict[] {
 	const byFile = new Map<string, Set<string>>();
 	const seen = new Set<string>();
 	for (const folder of folders) {
-		// Several AIs in one folder share the same files; that is not a conflict.
+		// 多個 AI 在同一個資料夾共用檔案不算衝突
 		if (seen.has(folder.cwd)) continue;
 		seen.add(folder.cwd);
 		for (const file of new Set(folder.files)) {
@@ -30,8 +27,6 @@ export function involvedBranches(conflicts: readonly Conflict[]): number {
 	return new Set(conflicts.flatMap(c => c.branches)).size;
 }
 
-// Uncommitted changes plus, with a mainline, what the branch has committed
-// since leaving it. null when the folder cannot be read.
 export async function folderFiles(cwd: string, mainline: string | null): Promise<string[] | null> {
 	const status = await statusEntries(cwd);
 	if (!status) return null;
@@ -44,14 +39,13 @@ export async function folderFiles(cwd: string, mainline: string | null): Promise
 	return [...files];
 }
 
-// The mainline is whatever the main folder has checked out now; the main
-// folder itself only contributes its uncommitted changes.
+// 主線以主資料夾目前所在 commit 為準，且主資料夾本身只算未提交修改，不與自己算 commit 差異
 export async function scanProject(project: string, folders: ReadonlyArray<{cwd: string; branch: string}>): Promise<Conflict[]> {
 	const mainline = await headCommit(project);
 	const changes = await Promise.all(
 		folders.map(async folder => {
 			const files = await folderFiles(folder.cwd, folder.cwd === project ? null : mainline);
-			// A folder that is gone is left out rather than failing the scan.
+			// 已消失的資料夾直接跳過，不中斷其餘掃描
 			if (!files) return null;
 			return {cwd: folder.cwd, branch: (await currentBranch(folder.cwd)) ?? folder.branch, files};
 		}),

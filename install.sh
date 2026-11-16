@@ -1,11 +1,9 @@
 #!/bin/sh
-# Installs AgentPulse.app (SPEC 7.1). Uses macOS built-ins only; Bun is
-# fetched into a temporary folder when it is not already installed, and
-# that folder is deleted at the end, so nothing but the app is left behind.
+# 安裝 AgentPulse.app：只依賴 macOS 內建工具，若沒裝 Bun 會暫時下載到暫存資料夾編譯並在結束時刪掉
 set -eu
 
 BUN_VERSION=1.4.4
-# From https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/SHASUMS256.txt
+# 雜湊值取自 https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/SHASUMS256.txt
 BUN_SHA256_ARM64=c240d7f0ccb90c263a849fcdb09b7ee62630d921348ed6aafda86b9d577bc510
 BUN_SHA256_X64=d4a155adfbfd09155eb3ba05c9e3a544f39297d7a68616d3c7759f67ab5c47dc
 BUNDLE_ID=local.agentpulse.app
@@ -20,7 +18,7 @@ fail() {
 
 cd "$(dirname "$0")"
 [ "$(uname -s)" = Darwin ] || fail "AgentPulse 目前只支援 macOS。"
-# Homebrew's folders, in case this shell's PATH lacks them.
+# 補上 Homebrew 路徑，以免部分環境的 PATH 沒包含
 PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
 export PATH
 
@@ -43,7 +41,7 @@ else
 	say "  沒有安裝 tmux。安裝：brew install tmux"
 	missing=1
 fi
-# /usr/bin/git exists even without the developer tools; it must actually run.
+# macOS 未裝開發者工具前 /usr/bin/git 仍會存在，必須能實際執行才算安裝
 if git_version=$(git --version 2>/dev/null); then
 	say "  git：$git_version"
 else
@@ -68,10 +66,10 @@ else
 		fail "下載的 Bun 檢查碼不符，為了安全已停止。"
 	unzip -q "$work/bun.zip" -d "$work"
 	bun=$work/$asset/bun
-	# package.json's build:mac calls `bun` by name.
+	# package.json 的 build:mac 直接呼叫 bun 指令名稱，需加入 PATH
 	PATH="$work/$asset:$PATH"
 fi
-# Keep Bun's download cache in the temporary folder too.
+# 下載快取也放進暫存資料夾，結束時一併清掉
 BUN_INSTALL_CACHE_DIR=$work/cache
 export BUN_INSTALL_CACHE_DIR
 
@@ -111,7 +109,7 @@ mv "$app" "$target"
 "$LSREGISTER" -f "$target" 2>/dev/null || true
 say "  已安裝到：$target"
 
-# A running UI server keeps the old program in memory until it is rebuilt.
+# 舊 UI server 若還在背景執行會繼續沿用舊版程式，安裝後主動關閉以載入新版
 if tmux -L agentpulse-ui has-session 2>/dev/null; then
 	step "重新整理使用中的介面"
 	tmux -L agentpulse-ui kill-server 2>/dev/null || true

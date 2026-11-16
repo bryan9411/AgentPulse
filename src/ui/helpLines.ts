@@ -5,15 +5,13 @@ import {padEnd, width} from './text.ts';
 export type HelpInput = {
 	lang: Lang;
 	glyphs: Glyphs;
-	// tmux key name from the config, e.g. "C-q".
 	backKey: string;
 	configPath: string;
 	logPath: string;
-	// false for tests and for terminals without colour.
 	color: boolean;
 };
 
-// tmux spells keys "C-q" / "M-x"; the user reads "ctrl+q" (CLAUDE.md).
+// tmux 以 "C-q" / "M-x" 表示按鍵，轉成給使用者閱讀的 "ctrl+q" 格式
 export function keyLabel(tmuxKey: string): string {
 	const names: Record<string, string> = {C: 'ctrl', M: 'alt', S: 'shift'};
 	const parts = tmuxKey.split('-');
@@ -28,7 +26,6 @@ function paint(text: string, hex: string, on: boolean): string {
 	return `\x1b[38;2;${r};${g};${b}m${text}\x1b[39m`;
 }
 
-// SPEC 4: the text paged by `less` in the ? popup. Pure, so it can be tested.
 export function helpLines(input: HelpInput): string[] {
 	const t = strings(input.lang).help;
 	const g = input.glyphs;

@@ -8,8 +8,7 @@ export function expandHome(path: string, home = homedir()): string {
 	return path;
 }
 
-// Relative paths are taken from the home folder: a double-clicked launch
-// starts there, and the sidebar's own cwd is not meaningful to the user.
+// 相對路徑以家目錄為基準：雙擊啟動時工作目錄不固定，側欄本身的 cwd 對使用者無意義
 export function toAbsolute(path: string, home = homedir()): string {
 	const expanded = expandHome(path.trim(), home);
 	return isAbsolute(expanded) ? resolve(expanded) : resolve(home, expanded);
@@ -23,7 +22,7 @@ export function readText(path: string): string | null {
 	}
 }
 
-// Write-then-rename so a crash never leaves a half-written config.
+// 先寫暫存檔再 rename，避免寫到一半當機導致設定檔損毀
 export function writeTextAtomic(path: string, text: string): void {
 	mkdirSync(dirname(path), {recursive: true});
 	const tmp = `${path}.${process.pid}.tmp`;
@@ -39,7 +38,6 @@ export function isDirectory(path: string): boolean {
 	}
 }
 
-// A path git can create a worktree at: nothing there yet, or an empty folder.
 export function missingOrEmptyDir(path: string): boolean {
 	if (!existsSync(path)) return true;
 	try {
@@ -49,8 +47,7 @@ export function missingOrEmptyDir(path: string): boolean {
 	}
 }
 
-// Walks up from `from` to `stopAt` (inclusive) removing folders, and stops at
-// the first one that is not empty: rmdir never deletes content.
+// 由內層往外逐層刪除空資料夾直到 stopAt（含），遇到非空資料夾即停止
 export function removeEmptyDirs(from: string, stopAt: string): void {
 	let dir = resolve(from);
 	const top = resolve(stopAt);
@@ -73,7 +70,6 @@ export function mtimeMs(path: string): number | null {
 	}
 }
 
-// The HUD pane is painted by writing straight to its tty (M0 G4).
 export function writeToTty(ttyPath: string, data: string): boolean {
 	try {
 		const fd = openSync(ttyPath, 'w');
@@ -88,18 +84,15 @@ export function writeToTty(ttyPath: string, data: string): boolean {
 	}
 }
 
-// Read-only file access handed to the agent adapters (SPEC 6.4), so they
-// never import infra and tests can feed them fake files.
+// 提供給各家 AI adapter 使用的唯讀檔案介面，避免 adapter 直接相依 infra/ 並方便測試注入假檔案
 export type HostFs = {
 	home: string;
 	env(name: string): string | undefined;
 	exists(path: string): boolean;
 	readText(path: string): string | null;
-	// The last `bytes` of a file; logs can grow to many megabytes.
+	// 僅讀取檔尾指定 bytes，避免大型 log 檔爆記憶體
 	readTail(path: string, bytes: number): string | null;
-	// The first `bytes` of a file.
 	readHead(path: string, bytes: number): string | null;
-	// Entry names; [] when the folder is missing.
 	listDir(path: string): string[];
 	mtimeMs(path: string): number | null;
 };

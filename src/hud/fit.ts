@@ -1,24 +1,19 @@
 import {truncate, width as cells} from '../ui/text.ts';
 
-// One field of a HUD line. Lower `rank` is more important and survives longer.
+// rank 數字越小越重要，寬度不足時保留越久；未設定 minWidth 表示要嘛完整顯示、要嘛整個拿掉
 export type Segment = {
 	text: string;
 	rank: number;
 	color: string;
-	// A field that may be cut down to this many cells (ending in …) before it
-	// is dropped; undefined means it is shown whole or not at all.
 	minWidth?: number;
 };
 
 export const SEPARATOR = ' · ';
 
-// A cut that lands on a space reads "one, …"; pull the ellipsis in.
+// 截斷點剛好落在空白上時會出現「foo …」，把省略號往前收緊
 const cut = (text: string, size: number) => truncate(text, size).replace(/\s+…$/, '…');
 
-// SPEC 5.5: walk from the least important field up; a shrinkable field is
-// first cut to its minimum, and any field that still does not fit is
-// dropped. The last field standing is cut to the width. Output keeps the
-// input order.
+// 由最不重要的欄位開始：有設定 minWidth 者先縮短到下限，仍塞不下才拿掉；最後只剩一個欄位時依總寬度硬截斷，輸出維持原本順序
 export function fitSegments(input: readonly Segment[], size: number): Segment[] {
 	if (size <= 0) return [];
 	const segments = input.filter(s => s.text !== '');

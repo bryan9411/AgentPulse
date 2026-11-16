@@ -7,7 +7,7 @@ import {exec} from '../src/infra/exec.ts';
 import {createTmux} from '../src/infra/tmux.ts';
 import {closeSession, createSession, listSessions, parseSessionLine, reloadSessionConf, respawnSession} from '../src/services/sessions.ts';
 
-// A private tmux socket and a throwaway repository; never the user's server.
+// 使用測試專用 socket 與暫存儲存庫，絕不碰使用者的背景 server
 const base = realpathSync(mkdtempSync(join(tmpdir(), 'ap-sess-')));
 const repo = join(base, '商店-api');
 const conf = join(base, 'agents.tmux.conf');
@@ -46,7 +46,6 @@ describe('sessions', () => {
 			exitStatus: null,
 		});
 		expect(await tmux.out(['show', '-v', '-t', `=${created.id}:`, '@ap-agent'])).toBe('claude');
-		// Claude Code gets a conversation id we chose, so its log can be found.
 		expect(sessions?.[0]?.agentSession).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
 		expect(await closeSession(tmux, created.id)).toBe(true);
 		expect(await listSessions(tmux)).toEqual([]);

@@ -8,8 +8,7 @@ import {msg, type Message} from '../i18n/strings.ts';
 
 export const SESSION_PREFIX = 'agentpulse-';
 
-// SPEC 5.1. Stored as session user options so a restart can read everything
-// back from tmux without a state file of our own.
+// 不另存狀態檔，全部中繼資料都存在 tmux session user option 裡，重啟時直接讀回
 export type SessionMeta = {
 	agent: string;
 	project: string;
@@ -17,9 +16,7 @@ export type SessionMeta = {
 	branch: string;
 	worktree: boolean;
 	created: number;
-	// The agent's own conversation id when we chose it (SPEC 5.1); '' otherwise.
 	agentSession: string;
-	// For a worktree, the branch it was cut from and merges back into; '' otherwise.
 	base: string;
 };
 
@@ -27,7 +24,6 @@ export type SessionRecord = SessionMeta & {
 	id: string;
 	dead: boolean;
 	exitStatus: number | null;
-	// The pane's process, i.e. the agent; 0 when unknown.
 	pid: number;
 };
 
@@ -60,8 +56,7 @@ export function metaOptions(meta: SessionMeta): Array<[string, string]> {
 	];
 }
 
-// One line of `list-panes -a`. A session created by hand on our socket, or
-// one whose metadata is still being written, has no agent and is skipped.
+// 過濾掉手動開在同一座 socket 上、或 metadata 尚未寫完而沒有 @ap-agent 的 session
 export function parseSessionLine(line: string): SessionRecord | null {
 	const [id, dead, status, agent, project, cwd, branch, worktree, created, pid, agentSession, base] = line.split(SEP);
 	if (!id?.startsWith(SESSION_PREFIX) || !agent || !project) return null;
@@ -85,8 +80,7 @@ export function parseSessionLine(line: string): SessionRecord | null {
 
 const NO_SERVER = /no server running|error connecting|no such file or directory/i;
 
-// null means the listing failed and the caller should keep what it had;
-// an empty list means there is genuinely nothing (including no server yet).
+// 回傳 null 表示查詢失敗（呼叫端應保留舊清單）；回傳 [] 表示確定沒有任何工作階段或 server 尚未啟動
 export async function listSessions(tmux: Tmux): Promise<SessionRecord[] | null> {
 	const result = await tmux.run(['list-panes', '-a', '-F', FIELDS.join(SEP)]);
 	if (!result.ok) return NO_SERVER.test(result.stderr) ? [] : null;
@@ -94,7 +88,7 @@ export async function listSessions(tmux: Tmux): Promise<SessionRecord[] | null> 
 	const sessions: SessionRecord[] = [];
 	for (const line of result.stdout.split('\n')) {
 		const record = parseSessionLine(line);
-		// One pane per session; a stray extra window must not duplicate the row.
+		// 每個工作階段只應有一個窗格，避免手動多開的窗格讓清單重複出現
 		if (!record || seen.has(record.id)) continue;
 		seen.add(record.id);
 		sessions.push(record);
@@ -124,9 +118,8 @@ export type CreateOptions = {
 	width: number;
 	height: number;
 	worktree?: boolean;
-	// With `worktree`: the branch to merge back into (SPEC 5.9).
 	base?: string;
-	// Tests run a plain command instead of a real AI.
+	// 測試用：以一般指令取代真實 AI
 	command?: string[];
 };
 
@@ -154,9 +147,8 @@ export async function createSession(tmux: Tmux, opts: CreateOptions): Promise<Cr
 		agentSession,
 		base: opts.base ?? '',
 	};
-	// Metadata goes in the same tmux invocation as the session so a poll can
-	// never see the session without it. -f only takes effect when this call
-	// starts the server.
+	// 在同一次 tmux 呼叫中連同 metadata 一起寫入，避免輪詢看到沒有中繼資料的半成品；
+	// 注意 -f 只有在這行順便啟動新 server 時才會生效
 	const args = [
 		'-f', opts.confPath,
 		'new-session', '-d', '-s', id, '-c', opts.cwd,
@@ -191,8 +183,6 @@ export async function isPaneDead(tmux: Tmux, id: string): Promise<boolean> {
 	return (await tmux.out(['display', '-p', '-t', `=${id}:`, '#{pane_dead}'])) === '1';
 }
 
-// The visible screen as plain text, for the adapter's classify (SPEC 5.3).
-// null when the capture failed, so the caller keeps the previous status.
 export async function captureScreen(tmux: Tmux, id: string): Promise<string | null> {
 	const result = await tmux.run(['capture-pane', '-p', '-t', `=${id}:`], {timeoutMs: 2000});
 	return result.ok ? result.stdout : null;
@@ -207,7 +197,7 @@ export async function sessionExists(tmux: Tmux, id: string): Promise<boolean> {
 	return (await tmux.run(['has-session', '-t', `=${id}`])).ok;
 }
 
-// Picks up a newer generated config when the server outlived an update.
+// 當 AI server 比更新前更早啟動時，重新載入最新產生的 tmux 設定檔
 export async function reloadSessionConf(tmux: Tmux, confPath: string): Promise<void> {
 	if ((await tmux.run(['has-session'])).ok) await tmux.run(['source-file', confPath]);
 }

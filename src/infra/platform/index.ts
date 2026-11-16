@@ -3,5 +3,5 @@ import type {Platform} from './types.ts';
 
 export type {Platform} from './types.ts';
 
-// Only macOS is implemented; WSL is reserved in SPEC 6.5.
+// 目前僅實作 macOS；WSL 保留於架構介面
 export const platform: Platform = darwin;

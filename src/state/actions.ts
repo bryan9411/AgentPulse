@@ -34,16 +34,14 @@ export function initialState(config: Config = DEFAULT_CONFIG): AppState {
 	});
 }
 
-// A session whose project was removed from config.json still has to be
-// reachable, so its project is listed after the configured ones.
+// 即使某個專案已從 config.json 移除，只要還有活著的工作階段就保留於清單尾端以便操作
 function toProjects(paths: readonly string[], sessions: readonly SessionSummary[] = []): Project[] {
 	const all = [...paths];
 	for (const session of sessions) if (!all.includes(session.project)) all.push(session.project);
 	return all.map(path => ({path, name: basename(path) || path}));
 }
 
-// Keep the cursor on a real row after the list changes underneath it,
-// staying near where it was rather than jumping to the top.
+// 清單變動導致原本選中列消失時，停留在相近索引避免游標跳回頂端
 function withSelection(state: AppState, before?: AppState): AppState {
 	const rows = visibleRows(state);
 	if (rows.some(row => row.key === state.selected)) return state;
@@ -62,13 +60,12 @@ function sameSessions(a: readonly SessionSummary[], b: readonly SessionSummary[]
 
 export function setSessions(state: AppState, sessions: SessionSummary[]): AppState {
 	if (state.sessionsLoaded && sameSessions(state.sessions, sessions)) return state;
-	// Details of closed sessions are dropped with them.
 	const details = Object.fromEntries(Object.entries(state.details).filter(([id]) => sessions.some(s => s.id === id)));
 	const next = withSelection(
 		{...state, sessions, details, sessionsLoaded: true, projects: toProjects(state.config.projects, sessions)},
 		state,
 	);
-	// After a restart, land on a running AI rather than on a group header.
+	// 重啟後首次載入清單時，優先停在第一個工作階段列而非專案標題列
 	const first = sessions[0];
 	if (!state.sessionsLoaded && first && selectedRow(next)?.kind !== 'session') {
 		return selectSession(next, first.id);
@@ -104,7 +101,6 @@ function setCollapsed(state: AppState, path: string, collapsed: boolean): AppSta
 	};
 }
 
-// On a session row, collapsing folds its group and moves the cursor up to it.
 export function collapseSelected(state: AppState): AppState {
 	const row = visibleRows(state)[selectedIndex(state)];
 	if (!row) return state;
@@ -134,7 +130,6 @@ export function editDialog(state: AppState, edit: (value: string) => string): Ap
 	return {...state, dialog: {...d, value: edit(d.value), error: null}};
 }
 
-// n works from a group row or any of its session rows.
 export function openNewSession(state: AppState, options: AgentOption[]): AppState {
 	const row = selectedRow(state);
 	if (!row) return state;
@@ -155,7 +150,6 @@ export function moveDialogChoice(state: AppState, delta: number): AppState {
 	return index === d.index ? state : {...state, dialog: {...d, index, error: null}};
 }
 
-// w works from a group row or any of its session rows, like n.
 export function openWorktree(state: AppState, options: AgentOption[]): AppState {
 	const project = selectedProjectPath(state);
 	if (!project) return state;
@@ -169,7 +163,6 @@ export function setWorktreeBase(state: AppState, project: string, base: string):
 	return {...state, dialog: {...d, base}};
 }
 
-// Opens busy: the checks of SPEC 5.9 run before anything is offered.
 export function openMerge(state: AppState): AppState {
 	const row = selectedRow(state);
 	if (row?.kind !== 'session') return state;
@@ -251,8 +244,7 @@ function sameStatus(a: SessionStatus | undefined, b: SessionStatus): boolean {
 	return a !== undefined && a.state === b.state && a.screen === b.screen && a.changedAt === b.changedAt && a.since === b.since;
 }
 
-// `entered` lists sessions that just moved into needs-approval or error.
-// A session leaves `attention` once it is out of those states or viewed.
+// entered 為剛進入警告狀態的 ID；已脫離警告狀態或使用者正看著該格就停止閃爍
 export function applyStatuses(state: AppState, statuses: Record<string, SessionStatus>, entered: readonly string[]): AppState {
 	const ids = Object.keys(statuses);
 	const unchanged = ids.length === Object.keys(state.statuses).length && ids.every(id => sameStatus(state.statuses[id], statuses[id]!));
@@ -263,7 +255,6 @@ export function applyStatuses(state: AppState, statuses: Record<string, SessionS
 	const sameAttention = attention.length === state.attention.length && attention.every((id, i) => state.attention[i] === id);
 	if (unchanged && sameAttention) return state;
 	const next = {...state, statuses: unchanged ? state.statuses : statuses, attention};
-	// Under `f`, a session that stopped needing the user drops out of the list.
 	return state.attentionOnly ? withSelection(next, state) : next;
 }
 
@@ -280,7 +271,6 @@ export function editFilter(state: AppState, edit: (value: string) => string): Ap
 	return withSelection({...state, filter: {text: edit(state.filter.text), editing: true}}, state);
 }
 
-// enter keeps the keyword and goes back to moving through the list.
 export function endFilter(state: AppState): AppState {
 	return state.filter.editing ? {...state, filter: {...state.filter, editing: false}} : state;
 }
@@ -294,8 +284,7 @@ export function toggleAttentionOnly(state: AppState): AppState {
 	return withSelection({...state, attentionOnly: !state.attentionOnly}, state);
 }
 
-// Pollers fill in one part at a time; an identical result changes nothing,
-// so the HUD is not repainted for it.
+// 各輪詢分開更新明細欄位；內容沒變就回傳原物件避免重畫 HUD
 export function setDetails(state: AppState, id: string, patch: Partial<SessionDetails>): AppState {
 	if (!state.sessions.some(s => s.id === id)) return state;
 	const before = state.details[id] ?? {};

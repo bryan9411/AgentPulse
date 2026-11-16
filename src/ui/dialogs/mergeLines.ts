@@ -8,10 +8,8 @@ const MAX_FILES = 5;
 const MAX_IGNORED = 3;
 const MAX_DETAIL_LINES = 3;
 
-// What git said, kept short: the sidebar is narrow and the log has the rest.
 const detail = (text: string, width: number): Line[] => (text ? wrapped(text, width, COLORS.dim).slice(0, MAX_DETAIL_LINES) : []);
 
-// SPEC 5.9: every step that enter will run, in order, before it runs.
 function planLines(plan: MergePlan, dialog: MergeDialog, lang: Lang, width: number): Line[] {
 	const t = strings(lang).merge;
 	const steps = [
@@ -67,7 +65,6 @@ function outcomeLines(outcome: MergeOutcome, lang: Lang, width: number): Line[] 
 			const left = outcome.step === 'close' ? t.cleanupClose : outcome.step === 'folder' ? t.cleanupFolder : t.cleanupBranch;
 			return [...marked(t.cleanupTitle(outcome.base), width, COLORS.warn), ...wrapped(left, width), ...detail(outcome.detail, width)];
 		}
-		// These two never stay on screen: the dialog closes or goes back to the plan.
 		case 'merged':
 		case 'blocked':
 			return [];

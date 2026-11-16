@@ -1,7 +1,6 @@
 import type {ListeningPort, ProcessEntry} from '../infra/platform/types.ts';
 
-// Every process below `root`, not counting root itself: the AI's own
-// sockets (e.g. an IDE bridge) are not the user's dev server.
+// 取出 root 底下的所有子程序，但不包含 root 本身（排除 AI 自身開的 IDE bridge 等連線）
 export function descendants(root: number, tree: readonly ProcessEntry[]): Set<number> {
 	const children = new Map<number, number[]>();
 	for (const p of tree) {
@@ -24,23 +23,19 @@ const MENTION = /\b(?:localhost|127\.0\.0\.1|0\.0\.0\.0):(\d{2,5})\b/g;
 
 export type PortInputs = {
 	root: number;
-	// Every session's AI process: their own sockets are never a dev server,
-	// even when another session's AI works in the same folder.
+	// 所有工作階段的 AI 主程序 PID，避免把同資料夾內另一家 AI 的 socket 誤當成網頁伺服器
 	agents: ReadonlySet<number>;
 	folder: string;
 	tree: readonly ProcessEntry[];
 	listening: readonly ListeningPort[];
-	// Working folder of listening processes.
 	cwds: ReadonlyMap<number, string>;
 	screen: string | null;
 };
 
 const inside = (path: string, folder: string) => path === folder || path.startsWith(folder.endsWith('/') ? folder : `${folder}/`);
 
-// SPEC 5.5: ports opened by the session's process tree; by a process working
-// inside the session's folder (a server started with `&` is re-parented to
-// launchd once its shell exits, M4); and any localhost:<port> on its screen
-// that something is actually listening on.
+// 同時檢查子程序樹、工作目錄位於專案內的背景程序（例如用 & 啟動後被 launchd 收養的伺服器），
+// 以及畫面上出現且確實有程序監聽中的 localhost:<port>
 export function sessionPorts({root, agents, folder, tree, listening, cwds, screen}: PortInputs): number[] {
 	const ports = new Set<number>();
 	const mine = root > 0 ? descendants(root, tree) : new Set<number>();

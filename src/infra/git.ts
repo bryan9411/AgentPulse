@@ -10,9 +10,7 @@ export function gitBin(): string | null {
 
 const git = (dir: string, args: string[], opts?: ExecOptions) => exec([gitBin() ?? 'git', '-C', dir, ...args], opts);
 
-// A project is the main working tree. Launching from inside a linked
-// worktree must still register the main folder, so derive it from the
-// shared git dir rather than --show-toplevel alone.
+// 專案一律對應到主儲存庫資料夾；即使從 linked worktree 啟動，也要透過 git common dir 回推主資料夾
 export async function projectRoot(dir: string): Promise<string | null> {
 	const result = await git(dir, ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-common-dir']);
 	if (!result.ok) return null;
@@ -28,14 +26,12 @@ export async function currentBranch(dir: string): Promise<string | null> {
 
 export type GitStats = {branch: string | null; added: number; removed: number; untracked: number};
 
-// "3 files changed, 10 insertions(+), 2 deletions(-)"; empty when nothing changed.
 export function parseShortstat(text: string): {added: number; removed: number} {
 	const added = /(\d+) insertions?\(\+\)/.exec(text);
 	const removed = /(\d+) deletions?\(-\)/.exec(text);
 	return {added: Number(added?.[1] ?? 0), removed: Number(removed?.[1] ?? 0)};
 }
 
-// SPEC 5.5 line 3. null when the folder is not a usable repository.
 export async function gitStats(dir: string): Promise<GitStats | null> {
 	const [branch, diff, untracked] = await Promise.all([
 		currentBranch(dir),
@@ -43,22 +39,18 @@ export async function gitStats(dir: string): Promise<GitStats | null> {
 		git(dir, ['ls-files', '--others', '--exclude-standard', '-z']),
 	]);
 	if (!untracked.ok) return null;
-	// A repository without commits has no HEAD to diff against.
+	// 尚無任何 commit 的儲存庫沒有 HEAD 可比較
 	const counts = diff.ok ? parseShortstat(diff.stdout) : {added: 0, removed: 0};
 	const files = untracked.stdout.split('\0').filter(Boolean).length;
 	return {branch, ...counts, untracked: files};
 }
 
-// ---- Worktrees, merging, changed files (SPEC 5.9, 5.10) ----
-
-// Commit hooks, a merge of many files or deleting a large folder take far
-// longer than a query.
+// commit hook、大量檔案合併或刪除大型資料夾都可能超過一般 5 秒逾時
 const SLOW_MS = 120_000;
 
 export type GitResult = {ok: true} | {ok: false; detail: string};
 
-// What git itself said, for the user to read. git may print in the system
-// language, so this text is only ever shown, never parsed.
+// git 輸出會受系統語系影響，只原樣顯示給使用者看、不以字串內容做程式判斷
 function failure(result: ExecFail): GitResult {
 	const lines = `${result.stderr}\n${result.stdout}`.split('\n').map(line => line.trim()).filter(Boolean);
 	return {ok: false, detail: result.kind === 'exit' ? (lines[0] ?? result.message) : result.message};
@@ -79,7 +71,6 @@ export async function branchExists(dir: string, name: string): Promise<boolean> 
 	return (await git(dir, ['show-ref', '--verify', '--quiet', `refs/heads/${name}`])).ok;
 }
 
-// null for a repository without commits, or a folder that is not one.
 export async function headCommit(dir: string): Promise<string | null> {
 	const result = await git(dir, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']);
 	return result.ok ? result.stdout.trim() || null : null;
@@ -89,26 +80,23 @@ export function worktreeAdd(project: string, branch: string, path: string, base:
 	return outcome(git(project, ['worktree', 'add', '-b', branch, path, base], {timeoutMs: SLOW_MS}));
 }
 
-// Never forced: git refuses while the folder holds modified or untracked files.
+// 不使用強制選項：資料夾內若有未提交或未追蹤檔案讓 git 自行拒絕
 export function worktreeRemove(project: string, path: string): Promise<GitResult> {
 	return outcome(git(project, ['worktree', 'remove', path], {timeoutMs: SLOW_MS}));
 }
 
-// -d, never -D: git refuses a branch that is not merged.
+// 只用 -d 不用 -D：拒絕刪除尚未合併的分支
 export function deleteBranch(project: string, branch: string): Promise<GitResult> {
 	return outcome(git(project, ['branch', '-d', branch]));
 }
 
 export type StatusEntry = {
-	// The two status letters, e.g. " M", "A ", "??", "UU".
 	code: string;
 	path: string;
-	// Where a renamed or copied file came from.
 	from?: string;
 };
 
-// `git status --porcelain -z`: "XY path\0", and for a rename or copy the
-// original path as one more field. -z keeps CJK names unescaped.
+// `git status --porcelain -z`：每筆為 "XY path\0"，重新命名或複製會多帶一個原始路徑欄位；-z 可避免中文路徑被跳脫
 export function parseStatusZ(text: string): StatusEntry[] {
 	const fields = text.split('\0');
 	const out: StatusEntry[] = [];
@@ -126,37 +114,31 @@ export function parseStatusZ(text: string): StatusEntry[] {
 	return out;
 }
 
-// Uncommitted changes, new files listed one by one. null when the folder
-// could not be read as a repository.
 export async function statusEntries(dir: string): Promise<StatusEntry[] | null> {
 	const result = await git(dir, ['status', '--porcelain', '-z', '--untracked-files=all']);
 	return result.ok ? parseStatusZ(result.stdout) : null;
 }
 
-// Top-level ignored files and folders (.env, node_modules/): not in git, yet
-// removed together with a worktree.
+// 頂層被 git 忽略的項目（例如 .env、node_modules/），移除 worktree 時會一併被清掉
 export async function ignoredEntries(dir: string): Promise<string[] | null> {
 	const result = await git(dir, ['status', '--porcelain', '-z', '--ignored']);
 	return result.ok ? parseStatusZ(result.stdout).filter(e => e.code === '!!').map(e => e.path) : null;
 }
 
-// Files this branch changed in commits since it left `base` (SPEC 5.10).
-// --no-renames: a rename lists the old path too, which another branch may
-// still be editing.
+// 加上 --no-renames：若偵測更名會連舊路徑一起算進來，可能誤報其他分支正在修改的檔案
 export async function committedFiles(dir: string, base: string): Promise<string[] | null> {
 	const result = await git(dir, ['diff', '--name-only', '--no-renames', '-z', `${base}...HEAD`]);
 	return result.ok ? zList(result.stdout) : null;
 }
 
-// Everything in the folder, new files included: a worktree with untracked
-// files left in it cannot be removed afterwards.
+// 連同新檔案一起 commit，否則留著未追蹤檔案會讓後續移除 worktree 失敗
 export async function commitAll(dir: string, message: string): Promise<GitResult> {
 	const added = await outcome(git(dir, ['add', '-A'], {timeoutMs: SLOW_MS}));
 	if (!added.ok) return added;
 	return outcome(git(dir, ['commit', '-m', message], {timeoutMs: SLOW_MS}));
 }
 
-// --no-edit: the default merge message, never an editor.
+// 加上 --no-edit 直接套用預設合併訊息，不彈出編輯器
 export function mergeNoFf(project: string, branch: string): Promise<GitResult> {
 	return outcome(git(project, ['merge', '--no-ff', '--no-edit', branch], {timeoutMs: SLOW_MS}));
 }

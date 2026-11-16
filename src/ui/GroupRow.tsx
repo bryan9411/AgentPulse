@@ -8,7 +8,6 @@ type Props = {
 	name: string;
 	count: number;
 	expanded: boolean;
-	// Two of its branches touch the same file (SPEC 5.10).
 	conflict: boolean;
 	selected: boolean;
 	width: number;

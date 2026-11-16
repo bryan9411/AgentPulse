@@ -5,12 +5,11 @@ import type {Store} from '../state/store.ts';
 import type {AppState, Dialog} from '../state/types.ts';
 import type {Controller} from './controller.ts';
 
-// Pasted text may carry newlines or escape bytes; a path never needs them.
+// 貼上的文字可能夾帶換行或控制字元，路徑欄位不需要這些字元
 const printable = (input: string) => input.replace(/[\u0000-\u001f\u007f]/g, '');
 
 function dialogKey(store: Store<AppState>, controller: Controller, dialog: Dialog, input: string, key: Key) {
-	// The work is under way and its answer belongs to this dialog: closing it
-	// now would hide a merge result, or hand the answer to the next dialog.
+	// 非同步操作進行中鎖定按鍵，避免提早關閉對話框導致結果遺失或誤套用到下一個對話框
 	if (dialog.busy) return;
 	if (key.escape) {
 		store.set(A.closeDialog);
@@ -20,7 +19,7 @@ function dialogKey(store: Store<AppState>, controller: Controller, dialog: Dialo
 		void controller.submitDialog();
 		return;
 	}
-	// Where letters are text (a branch name), only the arrows move the choice.
+	// 有文字輸入欄位的對話框（例如輸入分支名稱）不能攔截 j/k，只能用方向鍵切換選項
 	const typing = acceptsText(dialog);
 	if (key.upArrow || (!typing && input === 'k')) {
 		store.set(s => A.moveDialogChoice(s, -1));
@@ -38,7 +37,6 @@ function dialogKey(store: Store<AppState>, controller: Controller, dialog: Dialo
 	}
 }
 
-// Typing goes to the `/` field and filters live; enter keeps the keyword.
 function filterKey(store: Store<AppState>, input: string, key: Key) {
 	if (key.escape) store.set(A.clearFilter);
 	else if (key.return) store.set(A.endFilter);
@@ -65,7 +63,6 @@ export function useKeys(store: Store<AppState>, controller: Controller) {
 			return;
 		}
 		if (windowTooSmall(state)) return;
-		// The line answering the previous key has been read by now.
 		if (state.flash) store.set(s => A.setFlash(s, null));
 		const row = selectedRow(state);
 		if (key.upArrow || input === 'k') store.set(s => A.moveSelection(s, -1));
@@ -73,7 +70,6 @@ export function useKeys(store: Store<AppState>, controller: Controller) {
 		else if (key.leftArrow || input === 'h') store.set(A.collapseSelected);
 		else if (key.rightArrow || input === 'l') store.set(A.expandSelected);
 		else if (key.return) {
-			// On a group row enter folds it; on a session row it hands over the keyboard.
 			if (row?.kind === 'session') void controller.focusAi();
 			else store.set(A.toggleSelected);
 		} else if (input === 'z') {

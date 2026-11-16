@@ -27,6 +27,6 @@ export function runSidebar(): void {
 		configDir: dir,
 		pid: process.pid,
 	});
-	// Incremental rendering leaves ghosts after a pane resize (M0).
+	// 不開啟 incrementalRendering，否則窗格縮放後會留下殘影
 	render(<App store={store} controller={controller} />, {exitOnCtrlC: false, alternateScreen: true});
 }

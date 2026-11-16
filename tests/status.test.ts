@@ -13,7 +13,6 @@ const obs = (over: Partial<Observation>): Observation => ({
 	...over,
 });
 
-// Feeds observations one second apart and returns the states seen.
 function run(steps: Array<Partial<Observation>>): SessionStatus[] {
 	const out: SessionStatus[] = [];
 	let prev: SessionStatus | null = null;
@@ -68,7 +67,7 @@ describe('status machine', () => {
 			{screenState: null, screen: '3'},
 			{screenState: null, screen: '3'},
 		]).map(s => s.state);
-		// The first look has nothing to compare against.
+		// 第一次觀測沒有上一張畫面可比對，先視為 idle
 		expect(states).toEqual(['idle', 'running', 'running', 'running', 'done']);
 	});
 
@@ -123,7 +122,7 @@ describe('notifications', () => {
 		const log = new Map<string, number>();
 		expect(shouldNotify(log, {...check, viewing: true})).toBe(false);
 		expect(shouldNotify(log, {...check, enabled: false})).toBe(false);
-		// Skipped sends do not start the 30 s window.
+		// 被略過的通知不會啟用 30 秒冷卻視窗
 		expect(shouldNotify(log, check)).toBe(true);
 	});
 

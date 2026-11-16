@@ -3,20 +3,17 @@ import {DEFAULT_LANG, strings, type Lang} from '../../i18n/strings.ts';
 
 export const NOTIFY_DEDUPE_MS = 30_000;
 
-// Last notification time per `${session} ${state}`.
 export type NotifyLog = Map<string, number>;
 
 export type NotifyCheck = {
 	id: string;
 	state: AgentState;
 	now: number;
-	// On screen in the AI pane with the keyboard there: the user already sees it.
 	viewing: boolean;
 	enabled: boolean;
 };
 
-// SPEC 5.4. Call only for a session that just entered an alert state.
-// Records the send in `log` when it returns true.
+// 相同工作階段與狀態在 30 秒內只通知一次；使用者正在看該格時不通知
 export function shouldNotify(log: NotifyLog, check: NotifyCheck): boolean {
 	if (!check.enabled || check.viewing) return false;
 	const key = `${check.id} ${check.state}`;
@@ -39,8 +36,7 @@ export function notificationText(
 
 export const RESUME_COOLDOWN_MS = 3000;
 
-// SPEC 5.3: at most one SIGCONT per session every 3 s so a misdetected
-// screen does not turn into a redraw every second.
+// 每個工作階段每 3 秒最多送一次 SIGCONT，避免畫面誤判時每秒觸發重畫
 export function resumeAllowed(lastSent: Map<string, number>, id: string, now: number): boolean {
 	const last = lastSent.get(id);
 	if (last !== undefined && now - last < RESUME_COOLDOWN_MS) return false;

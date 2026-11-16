@@ -5,7 +5,6 @@ import type {AgentAdapter, AgentId} from './types.ts';
 
 export type {AgentAdapter, AgentId} from './types.ts';
 
-// Order is the order shown in the new-session dialog.
 export const AGENTS: readonly AgentAdapter[] = [claude, codex, agy];
 
 export function getAgent(id: string): AgentAdapter | null {

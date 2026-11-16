@@ -14,8 +14,7 @@ export type LayoutSnapshot = {
 	hudWidth: number;
 };
 
-// `=name` (exact match) is accepted for session targets only; commands that
-// take a pane or window target need the trailing colon.
+// `=name` 只比對 session 名稱；後面要指定視窗或窗格目標必須補上結尾冒號
 const sessionTarget = `=${UI_SESSION}`;
 const target = `=${UI_SESSION}:`;
 
@@ -28,8 +27,7 @@ export async function readPanes(tmux: Tmux): Promise<UiPanes | null> {
 	return {sidebar, ai, hud, hudTty};
 }
 
-// A UI session whose sidebar pane died (crash, killed by hand) cannot be
-// repaired in place, so the launcher rebuilds it.
+// 側欄窗格死掉（當機或被手動關閉）無法就地修復，必須由 launcher 重建整個 UI session
 export async function uiAlive(tmux: Tmux): Promise<boolean> {
 	if (!(await tmux.run(['has-session', '-t', sessionTarget])).ok) return false;
 	const sidebar = await tmux.out(['show', '-v', '-t', target, '@ap-sidebar']);
@@ -38,9 +36,8 @@ export async function uiAlive(tmux: Tmux): Promise<boolean> {
 	return panes?.split('\n').includes(sidebar) ?? false;
 }
 
-// window-resized, not client-resized: the latter fires before tmux
-// recomputes the layout and the sizes get overwritten (M0). Skipped while
-// zoomed because resize-pane would unzoom the AI pane.
+// 必須掛在 window-resized 而非 client-resized：後者觸發時 tmux 還沒算完版面，尺寸會被蓋掉；
+// 放大（zoom）期間跳過調整，避免 resize-pane 把 AI 窗格還原成未放大
 export function fixSizesCommand(panes: {sidebar: string; hud: string}, sidebarWidth: number): string {
 	const fix = `resize-pane -t ${panes.sidebar} -x ${sidebarWidth} ; resize-pane -t ${panes.hud} -y ${HUD_ROWS}`;
 	return `if -F "#{?window_zoomed_flag,0,1}" "${fix}"`;
@@ -70,7 +67,7 @@ export async function buildUiLayout(tmux: Tmux, opts: BuildOptions): Promise<UiP
 		'-c', opts.cwd, '-P', '-F', '#{pane_id}', opts.aiPlaceholderCommand,
 	]);
 	if (!ai) return 'could not create the AI pane';
-	// The HUD pane only displays what the sidebar writes to its tty; it never takes input.
+	// HUD 窗格只負責顯示側欄寫入 tty 的文字，停用輸入焦點
 	const hud = await tmux.out([
 		'split-window', '-v', '-b', '-d', '-t', ai, '-l', String(HUD_ROWS), '-c', opts.cwd, '-P', '-F', '#{pane_id}',
 		`sh -c ${shellQuote('printf "\\033[?25l"; stty -echo; while :; do sleep 86400; done')}`,
@@ -87,7 +84,7 @@ export async function buildUiLayout(tmux: Tmux, opts: BuildOptions): Promise<UiP
 		['set', '-t', target, '@ap-hud', hud],
 		['set-hook', '-g', 'window-resized', fix],
 		['set-hook', '-g', 'client-attached', fix],
-		// The one reserved key (CLAUDE.md rule 5). Selecting another pane also unzooms.
+		// 唯一的全域保留按鍵；切回側欄時也會一併解除 AI 窗格的放大狀態
 		['bind-key', '-n', opts.backKey, 'select-pane', '-t', sidebar],
 		['resize-pane', '-t', sidebar, '-x', String(opts.sidebarWidth)],
 		['resize-pane', '-t', hud, '-y', String(HUD_ROWS)],
@@ -100,8 +97,7 @@ export async function buildUiLayout(tmux: Tmux, opts: BuildOptions): Promise<UiP
 	return {sidebar, ai, hud, hudTty};
 }
 
-// The sidebar re-registers the hooks with its pid so tmux can poke it the
-// moment focus or sizes change.
+// 側欄重連時重新把自己的 pid 註冊到 tmux hook，焦點或大小一變就立刻發 SIGUSR1 通知重繪
 export async function installRefreshHooks(tmux: Tmux, panes: UiPanes, sidebarWidth: number, pid: number): Promise<void> {
 	const poke = `run-shell -b "kill -USR1 ${pid}"`;
 	const fix = fixSizesCommand(panes, sidebarWidth);
@@ -133,14 +129,13 @@ export function paintHud(panes: UiPanes, frame: string): boolean {
 	return writeToTty(panes.hudTty, frame);
 }
 
-// Leaves the UI session and every AI running; the launcher's attach returns.
 export async function detachUi(tmux: Tmux): Promise<void> {
 	await tmux.run(['detach-client', '-s', sessionTarget]);
 }
 
 export type AiPaneInfo = {tty: string; width: number; height: number};
 
-// Read fresh each time: respawn-pane gives the pane a new pty.
+// 每次都重新讀取：respawn-pane 會替換窗格的 pty
 export async function readAiPane(ui: Tmux, panes: UiPanes): Promise<AiPaneInfo | null> {
 	const out = await ui.out(['display', '-p', '-t', panes.ai, '#{pane_tty} #{pane_width} #{pane_height}']);
 	const [tty, w, h] = out?.split(' ') ?? [];
@@ -148,7 +143,7 @@ export async function readAiPane(ui: Tmux, panes: UiPanes): Promise<AiPaneInfo |
 	return {tty, width: Number(w) || 80, height: Number(h) || 24};
 }
 
-// The embedded client is named after the AI pane's tty on the session server.
+// 內嵌在右側窗格的 client 在工作階段 server 上會以該窗格的 tty 名稱識別
 export async function embeddedClientSession(agents: Tmux, tty: string): Promise<string | null> {
 	const out = await agents.out(['list-clients', '-F', '#{client_tty}\t#{session_name}']);
 	for (const line of out?.split('\n') ?? []) {
@@ -166,9 +161,8 @@ export type ShowOptions = {
 
 const ATTACH_WAIT_MS = 1500;
 
-// switch-client keeps the AI running and only changes what the pane shows
-// (SPEC 5.2). Without a client yet (first session, or after a UI rebuild)
-// the pane is respawned straight into an attach of the wanted session.
+// 透過 switch-client 切換顯示的工作階段而不重開 AI；若還沒有內嵌 client（第一個工作階段或重建 UI 後），
+// 則直接 respawn AI 窗格來 attach 目標工作階段
 export async function showSession(ui: Tmux, agents: Tmux, panes: UiPanes, opts: ShowOptions): Promise<boolean> {
 	await ui.run(['set', '-p', '-t', panes.ai, '@ap-label', opts.label]);
 	const pane = await readAiPane(ui, panes);
@@ -186,17 +180,14 @@ export async function showSession(ui: Tmux, agents: Tmux, panes: UiPanes, opts: 
 	return false;
 }
 
-// The placeholder text is baked into the pane's command, so a language
-// switch needs a respawn. Never touches a pane that embeds an AI.
+// 佔位文字寫在啟動指令裡，切換語言時需重新 respawn；若目前有顯示中的 AI 則不處理
 export async function redrawPlaceholder(ui: Tmux, agents: Tmux, panes: UiPanes, command: string): Promise<boolean> {
 	const pane = await readAiPane(ui, panes);
 	if (!pane || (await embeddedClientSession(agents, pane.tty))) return false;
 	return (await ui.run(['respawn-pane', '-k', '-t', panes.ai, command])).ok;
 }
 
-// tmux keeps the invoking client waiting until the popup is closed (M6), so
-// this resolves when the user is done reading. If the wait is cut short the
-// popup simply stays up; it never takes the server with it.
+// display-popup 會阻塞直到使用者關閉浮動視窗；逾時設長一點只影響等待，不會關掉 server
 const POPUP_MAX_MS = 60 * 60 * 1000;
 
 export async function showPopup(ui: Tmux, command: string): Promise<boolean> {
@@ -207,12 +198,10 @@ export async function clearLabel(ui: Tmux, panes: UiPanes): Promise<void> {
 	await ui.run(['set', '-p', '-t', panes.ai, '@ap-label', '']);
 }
 
-// enter: hand the keyboard to the AI. ctrl+q (bound in the UI server) takes it back.
 export async function focusAi(ui: Tmux, panes: UiPanes): Promise<boolean> {
 	return (await ui.run(['select-pane', '-t', panes.ai])).ok;
 }
 
-// z: full-window AI. ctrl+q selects the sidebar, which also unzooms.
 export async function zoomAi(ui: Tmux, panes: UiPanes): Promise<boolean> {
 	if (!(await focusAi(ui, panes))) return false;
 	const zoomed = await ui.out(['display', '-p', '-t', panes.ai, '#{window_zoomed_flag}']);

@@ -13,7 +13,6 @@ describe('conflict intersection', () => {
 			{cwd: '/w/shop.worktrees/a', branch: 'feat/a', files: ['src/cart.ts', 'src/a.ts', 'src/共用.ts']},
 			{cwd: '/w/shop.worktrees/b', branch: 'feat/b', files: ['src/cart.ts', 'src/共用.ts', 'src/b.ts']},
 		]);
-		// Most widely shared first, then by name.
 		expect(found).toEqual([
 			{file: 'src/cart.ts', branches: ['feat/a', 'feat/b', 'main']},
 			{file: 'src/共用.ts', branches: ['feat/a', 'feat/b']},
@@ -43,7 +42,6 @@ describe('conflict intersection', () => {
 	});
 });
 
-// Real repositories for the two sources of "changed files" (SPEC 5.10).
 describe('changed files from git', () => {
 	const base = realpathSync(mkdtempSync(join(tmpdir(), 'ap-radar-')));
 	const repo = join(base, '商店');
@@ -80,13 +78,11 @@ describe('changed files from git', () => {
 	});
 
 	test('uncommitted and committed changes both count', async () => {
-		// A: committed change to cart.ts and a rename; uncommitted new file in a new folder.
 		writeFileSync(join(wtA, 'src', 'cart.ts'), '// a\n');
 		await git(wtA, 'mv', 'src/old.ts', 'src/renamed.ts');
 		await git(wtA, 'commit', '-qam', 'a');
 		mkdirSync(join(wtA, 'docs'));
 		writeFileSync(join(wtA, 'docs', '說明.md'), 'x\n');
-		// B: only uncommitted edits.
 		writeFileSync(join(wtB, 'src', 'cart.ts'), '// b\n');
 		writeFileSync(join(wtB, 'src', '共用.ts'), '// b\n');
 
@@ -99,7 +95,7 @@ describe('changed files from git', () => {
 		expect(await folderFiles(join(base, 'gone'), mainline)).toBeNull();
 
 		expect(await scanProject(repo, [{cwd: wtA, branch: 'stale-name'}, {cwd: wtB, branch: 'feat-b'}])).toEqual([
-			// The branch is read from the folder, not from what the session remembered.
+			// 分支名稱應從資料夾實際讀取，不沿用工作階段舊紀錄
 			{file: 'src/cart.ts', branches: ['feat-b', 'feat/a']},
 		]);
 	});
@@ -111,7 +107,6 @@ describe('changed files from git', () => {
 			{file: 'src/cart.ts', branches: ['feat-b', 'feat/a']},
 			{file: 'src/共用.ts', branches: ['feat-b', 'main']},
 		]);
-		// A folder that has disappeared is skipped, not an error.
 		expect(await scanProject(repo, [...withMain, {cwd: join(base, 'gone'), branch: 'x'}])).toHaveLength(2);
 	});
 });

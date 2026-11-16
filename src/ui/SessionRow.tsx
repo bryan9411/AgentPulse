@@ -8,10 +8,9 @@ import {padEnd, width as cells} from './text.ts';
 
 type Props = {
 	session: SessionSummary;
-	// The AI name, with "#2" when several share the branch (SPEC 5.8).
 	label: string;
 	state: AgentState;
-	// Off phase of a blinking glyph (SPEC 5.4): the cell is drawn blank.
+	// 閃爍符號的熄滅相位：該格畫成空白
 	hidden: boolean;
 	selected: boolean;
 	width: number;

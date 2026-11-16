@@ -4,14 +4,13 @@ import {dirname} from 'node:path';
 const MAX_BYTES = 1024 * 1024;
 let logPath: string | null = null;
 
-// The sidebar owns the screen, so failures go to a file instead of stderr.
+// 側欄佔用終端機畫面，錯誤改寫入 log 檔以免破壞畫面
 export function configureLog(path: string): void {
 	logPath = path;
 	try {
 		mkdirSync(dirname(path), {recursive: true});
 		if (statSync(path).size > MAX_BYTES) truncateSync(path, 0);
 	} catch {
-		// Missing file is fine; it is created on first write.
 	}
 }
 
@@ -20,6 +19,5 @@ export function logError(message: string): void {
 	try {
 		appendFileSync(logPath, `${new Date().toISOString()} ${message}\n`);
 	} catch {
-		// Logging must never take the UI down.
 	}
 }

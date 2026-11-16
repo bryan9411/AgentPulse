@@ -6,13 +6,13 @@ import type {SessionDetails} from '../services/details.ts';
 import type {SessionStatus} from '../services/status/machine.ts';
 import type {MergeOutcome, MergePlan} from '../services/worktree.ts';
 
-// Re-exported so ui/ reads these shapes from state/ only.
+// 重新匯出供 ui/ 使用，讓 ui/ 不直接匯入 services/
 export type {Conflict} from '../services/conflictRadar.ts';
 export type {MergeOutcome, MergePlan} from '../services/worktree.ts';
 
 export type Project = {path: string; name: string};
 
-// Read back from tmux metadata every poll (SPEC 5.1).
+// 每次輪詢從 tmux metadata 讀回的工作階段資料
 export type SessionSummary = {
 	id: string;
 	project: string;
@@ -21,17 +21,15 @@ export type SessionSummary = {
 	agent: string;
 	dead: boolean;
 	exitStatus: number | null;
-	// Epoch seconds (@ap-created).
 	created: number;
-	// The agent's own conversation id; '' when not pinned.
+	// 我們指定給 AI 的對話 ID（未指定時為空字串）
 	agentSession: string;
-	// Made with `w` (@ap-worktree), and the branch it merges back into (@ap-base).
+	// 是否透過 w 建立 worktree（@ap-worktree）及合併回去的目標分支（@ap-base）
 	worktree: boolean;
 	base: string;
 };
 
 export type Row =
-	// `conflict`: two of its branches touch the same file (SPEC 5.10).
 	| {kind: 'project'; key: string; project: Project; count: number; expanded: boolean; conflict: boolean}
 	| {kind: 'session'; key: string; session: SessionSummary};
 
@@ -51,7 +49,7 @@ export type NewSessionDialog = DialogBase & {
 	index: number;
 };
 export type CloseSessionDialog = DialogBase & {kind: 'close-session'; session: SessionSummary};
-// SPEC 5.9. `base` is null until the main folder's branch has been read.
+// base 在取得主資料夾目前分支前為 null
 export type WorktreeDialog = DialogBase & {
 	kind: 'worktree';
 	project: string;
@@ -60,14 +58,12 @@ export type WorktreeDialog = DialogBase & {
 	options: AgentOption[];
 	index: number;
 };
-// One dialog for the whole merge: checking (no plan yet), refused
-// (`blocked`), waiting for enter (`plan`), then what happened (`outcome`).
+// 合併流程共用同一個對話框：檢查中（無 plan）→ 被拒（blocked）→ 等候確認（plan）→ 執行結果（outcome）
 export type MergeDialog = DialogBase & {
 	kind: 'merge';
 	session: SessionSummary;
 	plan: MergePlan | null;
 	blocked: Message | null;
-	// The commit message, asked for only when the plan has changes to commit.
 	value: string;
 	outcome: MergeOutcome | null;
 };
@@ -81,7 +77,6 @@ export type AppState = {
 	config: Config;
 	projects: Project[];
 	sessions: SessionSummary[];
-	// False until the first successful read from tmux.
 	sessionsLoaded: boolean;
 	collapsed: string[];
 	selected: string | null;
@@ -89,24 +84,17 @@ export type AppState = {
 	focus: 'list' | 'ai';
 	zoomed: boolean;
 	window: WindowSize | null;
-	// One line shown above the key hints, e.g. an invalid config file.
+	// 常駐通知（例如設定檔格式錯誤），顯示於提示列上方
 	notice: Message | null;
-	// The answer to the last key (nothing to show, merged…); gone on the next key.
+	// 上一個按鍵的一次性回饋，下次按鍵時清除
 	flash: Message | null;
-	// SPEC 5.3, keyed by session id; missing until the first capture.
 	statuses: Record<string, SessionStatus>;
-	// Sessions whose glyph blinks: entered needs-approval or error and the
-	// user has not looked yet (SPEC 5.4).
+	// 進入等待授權或錯誤且使用者尚未切過去查看、需要閃爍提醒的工作階段 ID
 	attention: string[];
-	// Blink phase, toggled by a timer only while `attention` is non-empty.
 	blinkOn: boolean;
-	// SPEC 5.8: `/` keyword, `f` only sessions that need the user.
 	filter: {text: string; editing: boolean};
 	attentionOnly: boolean;
-	// SPEC 5.5, keyed by session id; filled by the HUD pollers.
 	details: Record<string, SessionDetails>;
-	// SPEC 5.7; empty until the first check.
 	accounts: AccountMark[];
-	// SPEC 5.10, keyed by project path; only projects with a conflict.
 	conflicts: Record<string, Conflict[]>;
 };

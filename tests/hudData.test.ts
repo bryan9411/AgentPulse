@@ -15,7 +15,7 @@ import {descendants, sessionPorts} from '../src/services/ports.ts';
 import * as A from '../src/state/actions.ts';
 
 describe('ports', () => {
-	// launchd → zsh → claude(100) → npm(101) → node(102); claude also runs an MCP server(103).
+	// 程序樹：launchd → zsh → claude(100) → npm(101) → node(102)，claude 底下另跑一個 MCP server(103)
 	const tree = [
 		{pid: 1, ppid: 0, command: 'launchd'},
 		{pid: 100, ppid: 50, command: 'claude'},
@@ -32,7 +32,7 @@ describe('ports', () => {
 
 	test('ports of the tree, plus listening ports named on screen', () => {
 		const listening = [
-			{pid: 100, port: 45000}, // the AI's own socket
+			{pid: 100, port: 45000}, // AI 自己的 socket
 			{pid: 102, port: 5173},
 			{pid: 200, port: 5432},
 			{pid: 300, port: 8080},
@@ -53,8 +53,7 @@ describe('ports', () => {
 			[100, '/w/shop'],
 			[500, '/w/shop'],
 		]);
-		// Neither this AI's socket nor that of another session's AI (pid 500)
-		// in the same folder counts (M4: a second Claude Code showed up as :56075).
+		// 同資料夾內不論是自己或另一支 AI（pid 500）開的 socket 都不算開發伺服器
 		const agents = new Set([100, 500]);
 		expect(sessionPorts({root: 100, agents, folder: '/w/shop', tree, listening, cwds, screen: null})).toEqual([8765, 9001]);
 	});
@@ -91,7 +90,6 @@ describe('git stats', () => {
 		};
 		try {
 			await git('init', '-q', '-b', 'feat/購物車');
-			// No commit yet: no HEAD to diff, still a usable result.
 			writeFileSync(join(repo, 'a.txt'), '1\n2\n3\n');
 			expect(await gitStats(repo)).toEqual({branch: 'feat/購物車', added: 0, removed: 0, untracked: 1});
 			await git('add', '.');

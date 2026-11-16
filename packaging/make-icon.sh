@@ -1,7 +1,5 @@
 #!/bin/sh
-# Regenerates packaging/AppIcon.icns from packaging/AppIcon.svg with macOS
-# built-ins only (sips renders the SVG, iconutil packs the sizes). Only needed
-# after editing the SVG; install.sh copies the committed .icns as is.
+# 使用 macOS 內建的 sips 與 iconutil 從 AppIcon.svg 重新產生 AppIcon.icns；只有修改 SVG 後才需重跑
 set -eu
 cd "$(dirname "$0")"
 work=$(mktemp -d)

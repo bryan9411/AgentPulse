@@ -23,14 +23,13 @@ export function removeProject(path: string, configDir: string): RemoveProjectRes
 	return {ok: true, config: next};
 }
 
-// Launching inside a repository registers it silently; anywhere else is a no-op.
 export async function addProjectFromCwd(cwd: string, configDir: string): Promise<AddProjectResult | null> {
 	const root = await projectRoot(cwd);
 	return root ? register(root, configDir) : null;
 }
 
 function register(root: string, configDir: string): AddProjectResult {
-	// Re-read so an edit made in another window is not overwritten.
+	// 寫回前重讀一次，避免蓋掉使用者在其他視窗手動編輯的設定
 	const loaded = loadConfig(configDir);
 	if (loaded.status === 'invalid') return {ok: false, error: msg('configInvalidFix')};
 	const next = withProject(loaded.config, root);

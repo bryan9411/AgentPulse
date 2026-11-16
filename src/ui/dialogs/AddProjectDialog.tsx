@@ -9,7 +9,6 @@ type Props = {dialog: Dialog; width: number; lang: Lang};
 
 export function AddProjectDialog({dialog, width, lang}: Props) {
 	const t = strings(lang).addProject;
-	// Show the tail of a long path: the folder being typed is what matters.
 	const field = truncateStart(dialog.value, Math.max(1, width - 1));
 	const status = dialog.busy ? t.busy : dialog.error ? messageText(lang, dialog.error) : '';
 	return (

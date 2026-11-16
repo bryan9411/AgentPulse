@@ -36,7 +36,6 @@ function currentBuildStamp(): string {
 	}
 }
 
-// How the sidebar pane re-runs this same program, compiled or from source.
 export function selfCommand(role: string): string {
 	return isCompiled()
 		? `${shellQuote(process.execPath)} --role=${role}`
@@ -46,17 +45,16 @@ export function selfCommand(role: string): string {
 export async function launch(opts: LaunchOptions): Promise<number> {
 	const dir = configDir();
 	configureLog(join(dir, 'agentpulse.log'));
-	// Read first so the startup checks below speak the user's language.
+	// 先讀設定檔，讓底下啟動檢查的錯誤訊息能以使用者的介面語言顯示
 	const loaded = loadConfig(dir);
-	// Before anything looks up a program: started without a shell (an iTerm2
-	// profile command, an app bundle) PATH lacks nvm and the like (M7). Both
-	// tmux servers, and every AI, inherit what is set here.
+	// 從 App bundle 或 iTerm2 profile 直接啟動時不會經過 login shell，PATH 會缺少 nvm 等路徑，
+	// 必須在建立任何 tmux server 或啟動 AI 前先補齊
 	const shellPath = await platform.loginShellPath();
 	if (shellPath) process.env.PATH = mergePath(shellPath, process.env.PATH ?? '');
 	else logError('could not read PATH from the login shell; using the inherited one');
 	const problems = findProblems(await probe());
 	if (problems.length > 0) {
-		// Exit non-zero so Terminal keeps a double-clicked window open.
+		// 回傳非零結束碼，讓雙擊開啟的 Terminal 視窗停住顯示說明而不直接關閉
 		process.stderr.write(problemReport(loaded.config.language, problems));
 		return 1;
 	}
@@ -75,7 +73,7 @@ export async function launch(opts: LaunchOptions): Promise<number> {
 	const ui = createTmux(UI_SOCKET, tmuxPath);
 	const runningBuild = (await uiAlive(ui)) ? await ui.out(['show', '-v', '-t', `=${UI_SESSION}:`, '@ap-binary']) : null;
 	if (opts.restartUi || runningBuild !== buildStamp) {
-		// Only our own UI server; AI sessions live on the other socket and survive.
+		// 只重建 UI server；背景 AI 工作階段放在另一座 socket 上不受影響
 		await ui.run(['kill-server']);
 		const built = await buildUiLayout(ui, {
 			confPath: uiConf,

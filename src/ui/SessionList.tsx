@@ -21,7 +21,6 @@ type Props = {
 };
 
 export function SessionList({state, rows, selectedIndex, width, height, glyphs, filtered, lang}: Props) {
-	// A tall dialog can take every row the list had.
 	if (height <= 0) return null;
 	if (rows.length === 0) {
 		const t = strings(lang).list;

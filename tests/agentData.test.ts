@@ -7,7 +7,6 @@ import type {HostFs} from '../src/infra/fsx.ts';
 
 const HOME = '/h';
 
-// Files by absolute path; folders are implied by the paths.
 function fakeFs(files: Record<string, string>, env: Record<string, string> = {}, mtimes: Record<string, number> = {}): HostFs {
 	const dirs = new Map<string, Set<string>>();
 	for (const path of Object.keys(files)) {
@@ -31,7 +30,7 @@ function fakeFs(files: Record<string, string>, env: Record<string, string> = {},
 	};
 }
 
-// Shape of Claude Code 2.1.325 log lines, contents removed.
+// 仿造 Claude Code 2.1.325 記錄檔格式（已移除對話內容）
 const usageOf = (input: number) => ({input_tokens: 2, cache_creation_input_tokens: 400, cache_read_input_tokens: input - 402, output_tokens: 598});
 const assistant = (model: string, effort?: string, input = 1000, extra: Record<string, unknown> = {}) =>
 	JSON.stringify({type: 'assistant', isSidechain: false, ...extra, ...(effort ? {effort} : {}), message: {model, role: 'assistant', usage: usageOf(input)}});
@@ -100,14 +99,12 @@ describe('claude data', () => {
 		const a = `${HOME}/.claude/projects/-w----api/a.jsonl`;
 		const b = `${HOME}/.claude/projects/-w----api/b.jsonl`;
 		const fs = fakeFs({[a]: '', [b]: ''}, {}, {[a]: 1, [b]: 2});
-		// Non-ASCII characters and dots become dashes too.
 		expect(findClaudeLog(fs, '/w/商店.api', null)).toBe(b);
 	});
 
 	test('model and effort come from the latest real reply', () => {
 		const text = [assistant('claude-opus-5-5', 'high'), user, assistant('claude-sonnet-5-5', 'medium'), assistant('<synthetic>'), user].join('\n');
 		expect(scanTail(text)).toMatchObject({model: 'claude-sonnet-5-5', effort: 'medium'});
-		// A tail usually starts mid-line.
 		expect(scanTail(`l":"x"}}\n${assistant('claude-opus-5-5')}`)).toMatchObject({model: 'claude-opus-5-5', effort: null});
 		expect(scanTail(user)).toBeNull();
 	});
@@ -155,7 +152,6 @@ describe('claude data', () => {
 		const fs = fakeFs(files);
 		expect(liveConversation(fs, 13528)).toBe(fresh);
 		expect(claude.sessionInfo(fs, {cwd: '/w/shop', sessionId: id, pid: 13528})).toMatchObject({effort: 'high', context: {used: 37_125}});
-		// Unknown or mismatched process: the pinned id.
 		expect(claude.sessionInfo(fs, {cwd: '/w/shop', sessionId: id, pid: 999})).toMatchObject({context: {used: 90_000}});
 		const stale = fakeFs({...files, [`${HOME}/.claude/sessions/13528.json`]: JSON.stringify({pid: 1, sessionId: fresh})});
 		expect(liveConversation(stale, 13528)).toBeNull();

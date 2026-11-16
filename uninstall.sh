@@ -1,7 +1,5 @@
 #!/bin/sh
-# Removes everything AgentPulse put on this Mac (SPEC 7.1). A copy lives in
-# AgentPulse.app/Contents/Resources so it still works after the project
-# folder is gone.
+# 完整移除 AgentPulse 在這台 Mac 建立的所有檔案與背景程式；App 內也會複製一份，刪掉原始專案資料夾後仍可執行
 set -eu
 
 BUNDLE_ID=local.agentpulse.app
@@ -13,7 +11,7 @@ export PATH
 
 say() { printf '%s\n' "$*"; }
 
-# Only bundles we installed, never someone else's app of the same name.
+# 只刪除相同 Bundle ID 的 App，避免誤刪別人同名的程式
 apps=
 for dir in /Applications "$HOME/Applications" ${AGENTPULSE_APP_DIR:+"$AGENTPULSE_APP_DIR"}; do
 	app=$dir/AgentPulse.app
@@ -73,9 +71,7 @@ if [ "$has_tmux" -eq 1 ]; then
 	tmux -L agentpulse-ui kill-server 2>/dev/null || true
 	tmux -L agentpulse kill-server 2>/dev/null || true
 fi
-# tmux deletes its socket file on the way out, but one that crashed or was
-# killed leaves it behind. Remove it only once tmux confirms nothing is
-# listening on it any more.
+# tmux 當機或被強制結束時可能會留下殘留的 socket 檔，確認已無 server 監聽後再移除
 for socket in agentpulse-ui agentpulse; do
 	i=0
 	while [ -S "$SOCKET_DIR/$socket" ] && [ "$i" -lt 20 ]; do
@@ -92,7 +88,7 @@ for app in $apps; do
 	rm -rf "$app"
 done
 rm -rf "$CONFIG_DIR"
-# The one-time "control iTerm" permission; only this app's entry.
+# 清除此 App 的「控制 iTerm」AppleEvents 權限紀錄
 tccutil reset AppleEvents "$BUNDLE_ID" >/dev/null 2>&1 || true
 
 left=

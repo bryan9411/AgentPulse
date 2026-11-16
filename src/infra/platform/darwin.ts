@@ -3,11 +3,10 @@ import {join} from 'node:path';
 import {exec} from '../exec.ts';
 import type {ListeningPort, Platform, ProcessEntry} from './types.ts';
 
-// Title and body go in as argv, never spliced into the script, so quotes in
-// a branch name cannot break out of the AppleScript string.
+// 將標題與內文作為 argv 傳入，避免分支名稱中的引號破壞 AppleScript 字串
 const NOTIFY_SCRIPT = ['on run argv', 'display notification (item 2 of argv) with title (item 1 of argv)', 'end run'];
 
-// `lsof -F pn`: a "p<pid>" line, then one "n<addr>:<port>" per socket.
+// `lsof -F pn` 輸出格式：先一行 `p<pid>`，接著每條連線一行 `n<addr>:<port>`
 export function parseLsof(text: string): ListeningPort[] {
 	const out: ListeningPort[] = [];
 	const seen = new Set<string>();
@@ -26,7 +25,7 @@ export function parseLsof(text: string): ListeningPort[] {
 	return out;
 }
 
-// `lsof -d cwd -F pn`: "p<pid>", "fcwd", "n<path>".
+// `lsof -d cwd -F pn` 輸出格式：`p<pid>`、`fcwd`、`n<path>`
 export function parseCwds(text: string): Map<number, string> {
 	const out = new Map<number, string>();
 	let pid = 0;
@@ -49,11 +48,10 @@ export function parsePs(text: string): ProcessEntry[] {
 const PATH_BEGIN = '__AGENTPULSE_PATH_BEGIN__';
 const PATH_END = '__AGENTPULSE_PATH_END__';
 
-// printenv is an external command, so this reads the exported PATH the same
-// way in zsh, bash and fish.
+// 透過獨立的 printenv 指令讀取匯出的 PATH，讓 zsh、bash、fish 行為一致
 export const SHELL_PATH_SCRIPT = `echo ${PATH_BEGIN}; /usr/bin/printenv PATH; echo ${PATH_END}`;
 
-// Shell start-up files may print anything (banners, prompts), hence the markers.
+// 使用者 shell 啟動檔可能印出額外訊息，因此以標記擷取真正的 PATH
 export function parseShellPath(stdout: string): string | null {
 	const match = new RegExp(`${PATH_BEGIN}\\n([^\\n]*)\\n${PATH_END}`).exec(stdout);
 	const path = match?.[1]?.trim();
@@ -64,8 +62,7 @@ const SHELL_PATH_TIMEOUT_MS = 3000;
 
 export const darwin: Platform = {
 	id: 'darwin',
-	// Apple Silicon Homebrew, Intel Homebrew, then ~/.local/bin where agy and
-	// Claude Code's native installer put their binaries.
+	// 依序補上 Apple Silicon Homebrew、Intel Homebrew，以及 Claude Code／agy 原生安裝所在的 ~/.local/bin
 	binDirs: ['/opt/homebrew/bin', '/usr/local/bin', join(homedir(), '.local', 'bin')],
 	async notify(title, body) {
 		const script = NOTIFY_SCRIPT.flatMap(line => ['-e', line]);
@@ -73,14 +70,14 @@ export const darwin: Platform = {
 	},
 	async listeningPorts() {
 		const result = await exec(['/usr/sbin/lsof', '-nP', '-iTCP', '-sTCP:LISTEN', '-Fpn'], {timeoutMs: 5000});
-		// lsof exits 1 when nothing matches.
+		// 沒有任何監聽中的 port 時，lsof 會以結束碼 1 離開
 		if (!result.ok && !(result.kind === 'exit' && result.stdout === '' && result.code === 1)) return null;
 		return parseLsof(result.stdout);
 	},
 	async processCwds(pids) {
 		if (pids.length === 0) return new Map();
 		const result = await exec(['/usr/sbin/lsof', '-a', '-d', 'cwd', '-p', pids.join(','), '-Fpn'], {timeoutMs: 5000});
-		// Exit 1 also covers "some pids are gone"; whatever was printed is valid.
+		// 部分 pid 已結束時 lsof 也會回傳 1，但已印出的內容仍然有效
 		return parseCwds(result.stdout);
 	},
 	async processTree() {
@@ -97,9 +94,9 @@ export const darwin: Platform = {
 	},
 	async loginShellPath() {
 		const shell = process.env.SHELL || '/bin/zsh';
-		// -i as well as -l: nvm is usually set up in .zshrc, which only interactive shells read.
+		// 加上 -i：nvm 等工具通常寫在只有互動式 shell 才會讀取的 .zshrc
 		const result = await exec([shell, '-ilc', SHELL_PATH_SCRIPT], {timeoutMs: SHELL_PATH_TIMEOUT_MS});
-		// Some start-up files exit non-zero after printing PATH; the markers decide.
+		// 部分啟動檔印完 PATH 後可能回傳非零結束碼，改以標記是否存在為準
 		return parseShellPath(result.stdout);
 	},
 };

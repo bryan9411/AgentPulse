@@ -1,8 +1,6 @@
 import {join} from 'node:path';
 import type {HostFs} from '../infra/fsx.ts';
 
-// Helpers shared by the adapters' data methods (SPEC 6.8).
-
 export function readJson(fs: HostFs, path: string): unknown {
 	const text = fs.readText(path);
 	if (text === null) return undefined;
@@ -17,7 +15,6 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-// The keys of `obj[field]` when it is an object; [] otherwise.
 export function keysOf(obj: unknown, field: string): string[] {
 	if (!isRecord(obj)) return [];
 	const inner = obj[field];
@@ -30,7 +27,6 @@ export function stringField(obj: unknown, field: string): string | null {
 	return typeof value === 'string' && value.trim() !== '' ? value : null;
 }
 
-// A skill is a folder holding SKILL.md, one level below each root.
 export function countSkills(fs: HostFs, roots: readonly string[]): number {
 	let n = 0;
 	for (const root of roots) {

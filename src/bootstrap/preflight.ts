@@ -9,12 +9,10 @@ export type Problem =
 	| {kind: 'noGit'}
 	| {kind: 'noTty'};
 
-// What the checks observed; gathered separately so the decision is testable.
 export type Probe = {
 	tmuxPath: string | null;
 	tmuxVersionOutput: string;
-	// macOS ships /usr/bin/git as a stub that only offers to install the
-	// developer tools, so existing on disk is not enough: it must run.
+	// macOS 內建的 /usr/bin/git 只是要求安裝開發者工具的佔位程式，必須真的跑得動才算有裝
 	gitRuns: boolean;
 	tty: boolean;
 };
@@ -46,8 +44,7 @@ export async function probe(): Promise<Probe> {
 	};
 }
 
-// Plain text for a terminal that may have been opened by a double-click, so
-// it says what to install and how, not just what failed.
+// 輸出給雙擊 App 開啟的終端機閱讀的純文字提示，明確列出缺什麼與如何安裝
 export function problemReport(lang: Lang, problems: readonly Problem[]): string {
 	const t = strings(lang).startup;
 	const lines = [t.title, ''];

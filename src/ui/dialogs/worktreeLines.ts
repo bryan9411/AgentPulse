@@ -4,8 +4,6 @@ import {choiceLine, fieldLine, line, statusLines, wrapped, type Line} from '../l
 import {COLORS} from '../theme.ts';
 import {truncate, truncateStart} from '../text.ts';
 
-// SPEC 5.9: branch name and AI on one screen, with the folder that will be
-// created spelled out before anything happens.
 export function worktreeLines(dialog: WorktreeDialog, ctx: {projectName: string; path: string}, lang: Lang, width: number): Line[] {
 	const t = strings(lang);
 	return [

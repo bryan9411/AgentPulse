@@ -2,10 +2,7 @@ import {commandHasProgram} from './match.ts';
 import {lastNonEmpty, screenLines} from './screen.ts';
 import type {AgentAdapter, ScreenState} from './types.ts';
 
-// Not tested: Codex CLI is not installed on the development machine. The
-// patterns follow the prompts in Codex's public documentation and source;
-// anything else returns null so the screen-change fallback decides.
-
+// 未實測：開發機尚未安裝 Codex CLI，規則僅依公開原始碼與文件推斷
 const APPROVAL = /Would you like to (?:run|make|apply)\b|Allow command\?/;
 const BUSY_HINT = /\besc to interrupt\b/i;
 
@@ -25,10 +22,9 @@ export const codex: AgentAdapter = {
 	launchCommand: () => ['codex'],
 	matchProcess: line => commandHasProgram(line, ['codex']),
 	classify,
-	// Not tested: whether Codex stops itself on ctrl+z is unknown.
+	// 未實測：未知 Codex 是否會因 ctrl+z 暫停
 	isSuspended: () => false,
-	// Deferred until the user has a Codex account (2026-11-15): no data
-	// sources yet, so the HUD shows — and the top bar leaves codex out.
+	// 暫緩實作：尚未接上 Codex 資料來源
 	accountStatus: () => null,
 	mcpServers: () => null,
 	skillsCount: () => null,

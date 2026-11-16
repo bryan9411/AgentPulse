@@ -10,10 +10,8 @@ import {worktreeLines} from '../src/ui/dialogs/worktreeLines.ts';
 import {fieldLine, lineWidth, marked, wrapped, type Line} from '../src/ui/lineParts.ts';
 
 const LANGS: readonly Lang[] = ['en', 'zh-TW'];
-// The sidebar is 30 columns with one column of padding on each side.
 const WIDTH = 28;
 const text = (lines: Line[]) => lines.map(l => l.spans.map(s => s.text).join('').trimEnd());
-// Reads the dialog as one sentence, however it was wrapped.
 const flat = (lines: Line[]) => text(lines).join(' ').replace(/\s+/g, ' ');
 const fits = (lines: Line[], width = WIDTH) => {
 	for (const l of lines) expect(lineWidth(l)).toBeLessThanOrEqual(width);
@@ -73,7 +71,6 @@ describe('worktree dialog', () => {
 		for (const lang of LANGS) {
 			for (const error of errors) fits(worktreeLines({...dialog, error}, ctx, lang, WIDTH));
 			fits(worktreeLines({...dialog, busy: true}, ctx, lang, WIDTH));
-			// Same height with or without a name typed, so the list does not jump.
 			const typed = worktreeLines(dialog, ctx, lang, WIDTH).length;
 			expect(worktreeLines({...dialog, value: ''}, {...ctx, path: '/w/商店-api.worktrees/'}, lang, WIDTH)).toHaveLength(typed);
 		}
@@ -86,7 +83,6 @@ describe('merge dialog', () => {
 		expect(clean[0]).toBe('Merge and clean up?');
 		expect(clean[1]).toBe('feat/checkout → main');
 		expect(clean.filter(l => /^\d /.test(l))).toEqual(['1 merge into main', '2 close this AI', '3 remove the branch folder', '4 delete branch']);
-		// The branch name did not fit and continues indented.
 		expect(clean[clean.indexOf('4 delete branch') + 1]).toBe('  feat/checkout');
 		expect(flat(mergeLines(merge({}), 'en', WIDTH))).toContain('nothing deleted');
 		expect(clean.join(' ')).not.toContain('Commit message');
@@ -150,10 +146,8 @@ describe('merge dialog', () => {
 			fits(mergeLines(merge({plan: longPlan, value: '很長的提交訊息'.repeat(6), error: msg('needMessage')}), lang, WIDTH));
 			fits(mergeLines(merge({plan: longPlan, busy: true}), lang, WIDTH));
 			fits(mergeLines(merge({plan: null, busy: true}), lang, WIDTH));
-			// Narrower than the default sidebar still holds.
 			fits(mergeLines(merge({plan: longPlan}), lang, 18), 18);
 		}
-		// The usual case stays short enough for a 24-row terminal.
 		expect(mergeLines(merge({plan: {...plan, dirty: 2}}), 'zh-TW', WIDTH).length).toBeLessThanOrEqual(12);
 		expect(mergeLines(merge({plan: {...plan, dirty: 2}}), 'en', WIDTH).length).toBeLessThanOrEqual(13);
 	});
@@ -178,7 +172,6 @@ describe('open-url dialog and conflict note', () => {
 		const lines = conflictLines(many, 'en', WIDTH);
 		expect(text(lines).at(-1)).toBe('  +6 more');
 		expect(lines).toHaveLength(5);
-		// Four files are shown whole rather than three and "+1 more".
 		expect(conflictLines(many.slice(0, 4), 'en', WIDTH)).toHaveLength(5);
 		for (const lang of LANGS) fits(conflictLines(many, lang, WIDTH));
 	});

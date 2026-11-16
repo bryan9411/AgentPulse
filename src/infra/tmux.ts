@@ -6,10 +6,8 @@ export const AGENT_SOCKET = 'agentpulse';
 
 type Env = Record<string, string | undefined>;
 
-// Without a UTF-8 locale the tmux server and the nested client fall back to
-// ASCII for CJK text and box lines (M0). Claude Code's own variables would
-// change how an inner Claude Code behaves when we are launched from one.
-// TMUX is dropped so nested attaches are not refused.
+// 沒設定 UTF-8 語系時 tmux 與巢狀 client 會把中文和框線畫成亂碼；
+// 同時移除 TMUX 與 Claude Code 相關環境變數，避免巢狀 attach 被拒絕或干擾內層 Claude
 export function tmuxEnv(base: Env = process.env): Env {
 	const env: Env = {};
 	for (const [key, value] of Object.entries(base)) {
@@ -31,7 +29,6 @@ export type Tmux = {
 	readonly socket: string;
 	argv(args: string[]): string[];
 	run(args: string[], opts?: ExecOptions): Promise<ExecResult>;
-	// Trimmed stdout, or null on any failure.
 	out(args: string[]): Promise<string | null>;
 };
 
@@ -51,7 +48,6 @@ export function createTmux(socket: string, bin = tmuxBin() ?? 'tmux'): Tmux {
 
 export type TmuxVersion = {major: number; minor: number};
 
-// `tmux -V` prints e.g. "tmux 3.8", "tmux 3.3a", "tmux next-3.6".
 export function parseTmuxVersion(output: string): TmuxVersion | null {
 	const match = /(\d+)\.(\d+)/.exec(output);
 	if (!match) return null;
@@ -62,12 +58,11 @@ export function versionAtLeast(version: TmuxVersion, major: number, minor: numbe
 	return version.major > major || (version.major === major && version.minor >= minor);
 }
 
-// tmux expands `#` in formats; user-supplied text must not inject styles.
+// tmux 格式字串會展開 `#`，使用者文字中的 `#` 必須跳脫以免被當成樣式語法
 export function escapeFormat(text: string): string {
 	return text.replaceAll('#', '##');
 }
 
-// tmux runs pane commands through `sh -c`.
 export function shellQuote(text: string): string {
 	return `'${text.replaceAll("'", `'\\''`)}'`;
 }

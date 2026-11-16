@@ -7,8 +7,7 @@ import {missingOrEmptyDir, removeEmptyDirs} from '../src/infra/fsx.ts';
 import {branchExists, currentBranch, statusEntries} from '../src/infra/git.ts';
 import {checkCreate, createWorktree, planMerge, runMerge, worktreePath, worktreeRoot, type MergeTarget} from '../src/services/worktree.ts';
 
-// Every repository here is a throwaway under the system temp folder; the
-// user's git configuration is kept out so hooks or signing cannot interfere.
+// 使用暫存資料夾下的獨立儲存庫並隔離使用者的 git 設定，避免 hook 或 GPG 簽章干擾測試
 const base = realpathSync(mkdtempSync(join(tmpdir(), 'ap-wt-')));
 const savedEnv = {global: process.env.GIT_CONFIG_GLOBAL, system: process.env.GIT_CONFIG_NOSYSTEM};
 
@@ -32,7 +31,6 @@ const git = async (dir: string, ...args: string[]): Promise<string> => {
 };
 
 let counter = 0;
-// A fresh repository with one commit on `main`.
 async function newRepo(name = '商店-api'): Promise<string> {
 	const repo = join(base, `r${++counter}`, name);
 	mkdirSync(repo, {recursive: true});
@@ -52,7 +50,6 @@ async function newWorktree(repo: string, branch: string): Promise<MergeTarget> {
 	return {project: repo, cwd: made.path, base: made.base, worktree: true, running: false};
 }
 
-// Stands in for closing the tmux session; counts how often it was asked.
 function closer(result = true) {
 	const calls = {count: 0};
 	return {calls, deps: {closeSession: async () => (calls.count++, result)}};
@@ -74,11 +71,9 @@ describe('worktree paths', () => {
 		expect(missingOrEmptyDir(join(root, 'nothing-here'))).toBe(true);
 		removeEmptyDirs(join(root, 'feat', 'deep'), root);
 		expect(existsSync(join(root, 'feat'))).toBe(false);
-		// `keep` is still inside, so the root stays.
 		expect(existsSync(root)).toBe(true);
 		removeEmptyDirs(join(root, 'keep'), root);
 		expect(existsSync(root)).toBe(false);
-		// Never climbs above the stop folder.
 		expect(existsSync(base)).toBe(true);
 	});
 });
@@ -118,10 +113,8 @@ describe('creating a worktree', () => {
 		if (!made.ok) return;
 		expect(await currentBranch(made.path)).toBe('功能/購物車');
 		expect(await git(made.path, 'rev-parse', 'HEAD')).toBe(await git(repo, 'rev-parse', 'dev'));
-		// The main folder is untouched.
 		expect(await currentBranch(repo)).toBe('dev');
 		expect(await statusEntries(repo)).toEqual([]);
-		// An empty folder left by an earlier branch is fine to reuse.
 		mkdirSync(worktreePath(repo, 'reuse-me'), {recursive: true});
 		expect(await createWorktree(repo, 'reuse-me')).toMatchObject({ok: true});
 	});
@@ -170,7 +163,6 @@ describe('merge checks', () => {
 		await git(repo, 'checkout', '-q', '-b', 'other');
 		expect(await planMerge(target)).toEqual({ok: false, error: {key: 'mainNotOnBase', arg: 'main', arg2: 'other'}});
 		await git(repo, 'checkout', '-q', 'main');
-		// An untracked file in the main folder does not block.
 		writeFileSync(join(repo, 'notes.txt'), 'scratch\n');
 		expect(await planMerge(target)).toMatchObject({ok: true});
 		writeFileSync(join(repo, 'cart.ts'), 'export const total = 9;\n');
@@ -182,7 +174,7 @@ describe('merge checks', () => {
 	test('a merge the user already has going is never touched', async () => {
 		const repo = await newRepo();
 		const target = await newWorktree(repo, 'feat/a');
-		// The user's own half-finished merge of another branch.
+		// 模擬使用者自己在主資料夾進行到一半的另一個合併
 		await git(repo, 'checkout', '-q', '-b', 'theirs');
 		writeFileSync(join(repo, 'cart.ts'), 'export const total = 5;\n');
 		await git(repo, 'commit', '-qam', 'theirs');
@@ -192,7 +184,7 @@ describe('merge checks', () => {
 		await exec(['git', '-C', repo, 'merge', '--no-edit', 'theirs']);
 		const {calls, deps} = closer();
 		expect(await runMerge(target, '', deps)).toEqual({kind: 'blocked', error: {key: 'mainMerging'}});
-		// Still mid-merge: nothing aborted it.
+		// 使用者原本的 MERGE_HEAD 必須原封不動保留
 		expect((await exec(['git', '-C', repo, 'rev-parse', '--verify', '--quiet', 'MERGE_HEAD'])).ok).toBe(true);
 		expect(calls.count).toBe(0);
 	});
@@ -207,12 +199,11 @@ describe('running the merge', () => {
 		const {calls, deps} = closer();
 		expect(await runMerge(target, '', deps)).toEqual({kind: 'merged', branch: 'feat/a', base: 'main'});
 		expect(calls.count).toBe(1);
-		// --no-ff: a real merge commit with two parents.
+		// --no-ff 產生的 merge commit 會有兩個 parent
 		expect((await git(repo, 'rev-list', '--parents', '-n', '1', 'HEAD')).split(' ')).toHaveLength(3);
 		expect(await git(repo, 'show', 'HEAD:cart.ts')).toBe('export const total = 2;');
 		expect(existsSync(target.cwd)).toBe(false);
 		expect(await branchExists(repo, 'feat/a')).toBe(false);
-		// The "feat" folder and the .worktrees folder were empty and are gone too.
 		expect(existsSync(worktreeRoot(repo))).toBe(false);
 		expect(await statusEntries(repo)).toEqual([]);
 	});
@@ -225,12 +216,10 @@ describe('running the merge', () => {
 		const first = closer();
 		expect(await runMerge(target, '   ', first.deps)).toEqual({kind: 'blocked', error: {key: 'needMessage'}});
 		expect(first.calls.count).toBe(0);
-		// Refused before anything was staged or committed.
 		expect(await git(target.cwd, 'rev-list', '--count', 'main..HEAD')).toBe('0');
 		const second = closer();
 		expect(await runMerge(target, ' 修正登入 ', second.deps)).toEqual({kind: 'merged', branch: 'fix-登入', base: 'main'});
 		expect(await git(repo, 'log', '--format=%s', '-n', '1', 'HEAD')).toBe("Merge branch 'fix-登入'");
-		// The merged-in side is the commit made from the message.
 		expect(await git(repo, 'log', '--format=%s', '-n', '1', 'HEAD^2')).toBe('修正登入');
 		expect(await git(repo, 'show', 'HEAD:新檔.ts')).toBe('new');
 		expect(existsSync(target.cwd)).toBe(false);
@@ -252,11 +241,9 @@ describe('running the merge', () => {
 			committed: true,
 		});
 		expect(calls.count).toBe(0);
-		// The main folder is exactly where it was.
 		expect(await git(repo, 'rev-parse', 'HEAD')).toBe(mainHead);
 		expect(await statusEntries(repo)).toEqual([]);
 		expect((await exec(['git', '-C', repo, 'rev-parse', '--verify', '--quiet', 'MERGE_HEAD'])).ok).toBe(false);
-		// Folder, branch and the commit made on the way are all still there.
 		expect(existsSync(join(target.cwd, 'cart.ts'))).toBe(true);
 		expect(await branchExists(repo, 'feat/a')).toBe(true);
 		expect(await git(target.cwd, 'log', '--format=%s', '-n', '1')).toBe('wip');
@@ -268,7 +255,7 @@ describe('running the merge', () => {
 		writeFileSync(join(target.cwd, 'added.ts'), 'from the branch\n');
 		await git(target.cwd, 'add', '.');
 		await git(target.cwd, 'commit', '-qm', 'add file');
-		// An untracked file of the same name in the main folder would be overwritten.
+		// 主資料夾裡同名的未追蹤檔案會因合併衝突被覆蓋，git 會在動手前先拒絕
 		writeFileSync(join(repo, 'added.ts'), 'mine\n');
 		const {calls, deps} = closer();
 		const outcome = await runMerge(target, '', deps);
@@ -289,7 +276,7 @@ describe('running the merge', () => {
 		expect(existsSync(stuck.cwd)).toBe(true);
 		expect(await branchExists(repo, 'feat/a')).toBe(true);
 
-		// A file that appears while the session is closing: git will not remove the folder.
+		// 關閉工作階段的同時出現新檔案，讓 git worktree remove 拒絕移除資料夾
 		const late = await newWorktree(repo, 'feat/b');
 		writeFileSync(join(late.cwd, 'b.ts'), 'b\n');
 		await git(late.cwd, 'add', '.');
@@ -303,7 +290,6 @@ describe('running the merge', () => {
 		expect(outcome).toMatchObject({kind: 'cleanup-failed', step: 'folder', base: 'main'});
 		expect(await Bun.file(join(late.cwd, 'server.log')).text()).toBe('written late\n');
 		expect(await branchExists(repo, 'feat/b')).toBe(true);
-		// The merge itself went through.
 		expect(await git(repo, 'show', 'HEAD:b.ts')).toBe('b');
 	});
 });

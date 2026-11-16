@@ -3,15 +3,12 @@ import type {AgentAdapter, SessionInfo} from '../agents/types.ts';
 import type {HostFs} from '../infra/fsx.ts';
 import type {GitStats} from '../infra/git.ts';
 
-// Slow-changing environment of a working folder (SPEC 6.6: every 60 s).
 export type AgentFacts = {
 	mcp: string[] | null;
 	skills: number | null;
 	rules: {name: string; present: boolean} | null;
 };
 
-// What the HUD knows about one session, filled in by separate pollers;
-// a missing field has not been read yet.
 export type SessionDetails = {
 	info?: SessionInfo;
 	facts?: AgentFacts;
@@ -24,7 +21,7 @@ export function rulesPresence(adapter: AgentAdapter, fs: HostFs, cwd: string): A
 	const [first] = adapter.rulesFiles;
 	if (!first) return null;
 	const found = adapter.rulesFiles.find(name => fs.exists(join(cwd, name)));
-	// `.claude/CLAUDE.md` is still reported under the plain file name.
+	// 像 `.claude/CLAUDE.md` 這類子目錄規範檔仍只顯示純檔名
 	return found ? {name: found.split('/').pop() ?? found, present: true} : {name: first, present: false};
 }
 
@@ -36,7 +33,6 @@ export function readFacts(adapter: AgentAdapter, fs: HostFs, cwd: string): Agent
 	};
 }
 
-// SPEC 6.6: the selected session every 5 s, the others every 30 s.
 export const GIT_SELECTED_MS = 5000;
 export const GIT_OTHERS_MS = 30_000;
 

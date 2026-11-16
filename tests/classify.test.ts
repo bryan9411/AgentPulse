@@ -7,37 +7,33 @@ import type {ScreenState} from '../src/agents/types.ts';
 const FIXTURES = join(import.meta.dir, 'fixtures');
 const screen = (agent: string, name: string) => readFileSync(join(FIXTURES, agent, `${name}.txt`), 'utf8');
 
-// Every captured screen has an expected state; a new fixture without an
-// entry here fails the coverage test below.
+// 每個樣本檔都必須在這裡定義預期狀態，底下覆蓋率測試才會通過
 const EXPECTED: Record<string, Record<string, ScreenState | null>> = {
 	claude: {
 		'approval-trust-folder': 'needs-approval',
 		'approval-bash': 'needs-approval',
-		// The ⏺ next to the pending command blinks while it waits.
 		'approval-bash-blink': 'needs-approval',
 		'approval-edit': 'needs-approval',
 		'approval-question': 'needs-approval',
 		'running-thinking': 'running',
 		'running-after-approval': 'running',
-		// Connection retries are still a running turn, not an error yet.
 		'running-retrying': 'running',
 		'idle-fresh': 'idle',
 		'idle-after-done': 'idle',
 		'idle-after-reject': 'idle',
 		'idle-after-question-cancel': 'idle',
-		// "You've used 75% of your weekly limit" is a banner, not an error.
+		// 週額度使用橫幅不是錯誤狀態
 		'idle-usage-banner': 'idle',
 		'resumed-with-draft': 'idle',
 		'constructed-resumed-notice-above': 'idle',
 		'error-api': 'error',
 		'suspended': null,
 		'suspended-with-draft': null,
-		// The pane is dead here; the status machine never asks the adapter.
 		'exited-after-suspend': null,
 	},
 	agy: {
 		'approval-trust-folder': 'needs-approval',
-		// Its footer also says "esc to cancel", like a running turn.
+		// agy 授權選單底行一樣有 "esc to cancel"，必須先於執行中判斷
 		'approval-command': 'needs-approval',
 		'running-generating': 'running',
 		'running-command': 'running',
@@ -79,12 +75,11 @@ describe('classify', () => {
 	test('an old API error above a newer prompt is history', () => {
 		const lines = screen('claude', 'error-api').split('\n');
 		const box = lines.findIndex(l => l.startsWith('──'));
-		// Answer the error with a new message whose reply was fine.
 		lines.splice(box, 0, '❯ try again', '⏺ Done.');
 		expect(getAgent('claude')!.classify(lines.join('\n'))).toBe('idle');
 	});
 
-	// Not tested against a real Codex: these mirror its documented prompts.
+	// 未針對真實 Codex CLI 實測，僅依公開提示字串驗證
 	test('codex follows its documented prompts', () => {
 		const codex = getAgent('codex')!;
 		expect(codex.classify('Would you like to run the following command?\n\n  $ ls\n\n› 1. Yes, proceed')).toBe('needs-approval');

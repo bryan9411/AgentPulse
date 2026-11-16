@@ -1,5 +1,4 @@
-// SPEC 3.3. The bottom layer: imports nothing, so every layer may use it.
-
+// 最底層模組：不可匯入任何其他模組，讓所有層都能共用
 export type Lang = 'en' | 'zh-TW';
 
 export const DEFAULT_LANG: Lang = 'en';
@@ -13,7 +12,6 @@ export function nextLang(lang: Lang): Lang {
 }
 
 const en = {
-	// Keyed like AgentState; i18n cannot import it.
 	state: {
 		running: 'running',
 		'needs-approval': 'needs approval',
@@ -33,7 +31,7 @@ const en = {
 		noProjects: 'No projects',
 		addOne: 'Press a to add one',
 	},
-	// Each line must fit the default 28-cell list width.
+	// 每行寬度不得超過預設 28 欄的清單空間
 	hints: {
 		addProject: ['enter add · esc cancel'],
 		removeProject: ['enter remove · esc cancel'],
@@ -49,10 +47,9 @@ const en = {
 		filterOff: '/ filter · f needs you',
 		session: ['↑↓ move · enter type', 'z zoom · x close · n new', 'w worktree · m merge', 'd diff · o open web'],
 		sessionDead: ['↑↓ move · enter restart', 'z zoom · x close · n new', 'w worktree · m merge', 'd diff · o open web'],
-		// Padded to as many lines as `session` so the list does not jump.
+		// 與 session 維持相同行數，移動游標時清單才不會上下跳動
 		project: ['↑↓ move · ←→ fold', 'n new session', 'w worktree (new branch)', 'x remove project'],
-		// Names the other language in its own script so it can be found
-		// by someone who cannot read this one.
+		// 用目標語言寫切換選項名稱，讓看不懂目前語言的人也能認出來
 		tail: ['a add project · q quit', '? help · t 中文'],
 	},
 	addProject: {title: 'Add project', label: 'Folder path (git repo):', busy: 'Checking…'},
@@ -117,9 +114,7 @@ const en = {
 		title: (n: number) => `conflict · ${n} branches`,
 		more: (n: number) => `+${n} more`,
 	},
-	// Shown by `less` inside the diff popup.
 	diff: {prompt: 'q close · ↑↓ space scroll', untracked: 'New files (not in git yet):'},
-	// Kept in state as {key, arg}, so these stay plain text with {0} and {1}.
 	msg: {
 		enterPath: 'Enter a folder path',
 		folderNotFound: 'Folder not found',
@@ -183,7 +178,6 @@ const en = {
 		exited: (status: string) => `AI exited (status ${status}) · ctrl+q, then enter to restart or x to close`,
 		placeholder: 'No session · select a project and press n',
 	},
-	// The ? popup. Keys are never translated (SPEC 3.3).
 	help: {
 		title: 'AgentPulse keys',
 		prompt: 'q close · ↑↓ space scroll',
@@ -229,7 +223,6 @@ const en = {
 		settings: 'settings: ',
 		log: 'error log: ',
 	},
-	// Printed before the UI exists; the window may have been opened by a double-click.
 	startup: {
 		title: 'AgentPulse cannot start yet.',
 		noTmux: [
@@ -246,8 +239,7 @@ const en = {
 
 export type Strings = typeof en;
 
-// Taiwan wording, and plain: say where and what to do, not the spec's
-// internal names (SPEC 3.3).
+// 繁體中文（台灣用語），盡量白話說明操作方式，不用規格內部術語
 const zhTW: Strings = {
 	state: {
 		running: '工作中',
@@ -479,8 +471,7 @@ export function strings(lang: Lang): Strings {
 
 export type MessageKey = keyof Strings['msg'];
 
-// A translatable message held in state, so switching language also
-// re-renders errors and notices already on screen.
+// 狀態只存訊息鍵與參數，切換語言時畫面上的錯誤與通知也會即時跟著換語言
 export type Message = {key: MessageKey; arg?: string; arg2?: string};
 
 export function msg(key: MessageKey, arg?: string, arg2?: string): Message {
@@ -488,7 +479,7 @@ export function msg(key: MessageKey, arg?: string, arg2?: string): Message {
 	return arg2 === undefined ? {key, arg} : {key, arg, arg2};
 }
 
-// Function replacers: a branch name may itself contain "$&" or "{1}".
+// 改用函式當替換值，避免分支名稱本身含有 "$&" 或 "{1}" 時被 replace 誤解
 export function messageText(lang: Lang, message: Message): string {
 	return strings(lang).msg[message.key].replace(/\{([01])\}/g, (_, n: string) => (n === '0' ? message.arg : message.arg2) ?? '');
 }

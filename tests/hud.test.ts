@@ -46,7 +46,6 @@ describe('hud', () => {
 		expect(first({state: 'needs-approval'}).trimEnd()).toMatch(/◐ needs approval$/);
 		expect(first({state: 'running', stalled: true}).trimEnd()).toMatch(/● running · stalled\?$/);
 		expect(first({state: null}).trimEnd()).toBe(' main · shop · claude');
-		// Too narrow for the status: dropped whole, never cut.
 		expect(first({state: 'needs-approval'}, 16)).not.toContain('◐');
 		for (const size of [1, 10, 16, 17, 30, 80]) {
 			for (const state of ['running', 'needs-approval', 'idle', 'done', 'error'] as const) {
@@ -95,14 +94,11 @@ describe('fitSegments', () => {
 		const all = [seg('model-name', 1, 5), seg('MCP one, two', 2, 6), seg('skills 4', 4), seg('CLAUDE.md ✓', 3)];
 		const full = join(all);
 		expect(join(fitSegments(all, width(full)))).toBe(full);
-		// One cell short: skills goes first, whole.
 		expect(join(fitSegments(all, width(full) - 1))).toBe('model-name · MCP one, two · CLAUDE.md ✓');
-		// Then the rules file, then the MCP list is cut down to its minimum.
 		expect(join(fitSegments(all, 25))).toBe('model-name · MCP one, two');
 		expect(join(fitSegments(all, 22))).toBe('model-name · MCP one,…');
 		expect(join(fitSegments(all, 19))).toBe('model-name · MCP o…');
 		expect(join(fitSegments(all, 18))).toBe('model-name');
-		// Only the most important field is left, cut to the width.
 		expect(join(fitSegments(all, 6))).toBe('model…');
 	});
 
@@ -200,7 +196,6 @@ describe('context (SPEC 5.6)', () => {
 			expect(v.percent).toBe((v.system ?? 0) + (v.chat ?? 0));
 		}
 		expect(contextView({used: 820_000, base: 180_000}, 1_000_000)).toMatchObject({percent: 82, system: 18, chat: 64, free: 18});
-		// The base can never exceed what is used.
 		expect(contextView({used: 30_000, base: 40_000}, 1_000_000)).toMatchObject({system: 3, chat: 0});
 	});
 
@@ -219,7 +214,7 @@ describe('context (SPEC 5.6)', () => {
 		const v = contextView({used: 820_000, base: 180_000}, 1_000_000);
 		expect(line(v, 70).trimEnd()).toBe(`context 82% ${'━'.repeat(21)}${'─'.repeat(4)}  ≈ system 18 · chat 64 · free 18`);
 		expect(line(v, 56).trimEnd()).toBe(`context 82% ${'━'.repeat(9)}${'─'.repeat(2)}  ≈ system 18 · chat 64 · free 18`);
-		// Too narrow for an 8-cell bar beside the breakdown: the breakdown goes, the bar grows back.
+		// 寬度不足以同時放明細與 8 格進度條時，拿掉明細讓進度條恢復伸展
 		expect(line(v, 50).trimEnd()).toBe(`context 82% ${'━'.repeat(25)}${'─'.repeat(5)}`);
 		expect(line(v, 20).trimEnd()).toBe(`context 82% ${'━'.repeat(7)}${'─'.repeat(1)}`);
 		expect(line(v, 15).trimEnd()).toBe('context 82%');
