@@ -1,4 +1,4 @@
-import {closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmdirSync, statSync, writeFileSync, writeSync} from 'node:fs';
+import {closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, statSync, writeFileSync, writeSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {dirname, isAbsolute, join, resolve} from 'node:path';
 
@@ -35,30 +35,6 @@ export function isDirectory(path: string): boolean {
 		return statSync(path).isDirectory();
 	} catch {
 		return false;
-	}
-}
-
-export function missingOrEmptyDir(path: string): boolean {
-	if (!existsSync(path)) return true;
-	try {
-		return statSync(path).isDirectory() && readdirSync(path).length === 0;
-	} catch {
-		return false;
-	}
-}
-
-// 由內層往外逐層刪除空資料夾直到 stopAt（含），遇到非空資料夾即停止
-export function removeEmptyDirs(from: string, stopAt: string): void {
-	let dir = resolve(from);
-	const top = resolve(stopAt);
-	while (dir === top || dir.startsWith(`${top}/`)) {
-		try {
-			rmdirSync(dir);
-		} catch {
-			return;
-		}
-		if (dir === top) return;
-		dir = dirname(dir);
 	}
 }
 

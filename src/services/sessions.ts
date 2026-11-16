@@ -1,6 +1,6 @@
 import {AGENTS, getAgent} from '../agents/index.ts';
 import {resolveBin} from '../infra/exec.ts';
-import {hostFs} from '../infra/fsx.ts';
+import {hostFs, type HostFs} from '../infra/fsx.ts';
 import {currentBranch} from '../infra/git.ts';
 import {platform} from '../infra/platform/index.ts';
 import type {Tmux} from '../infra/tmux.ts';
@@ -14,7 +14,6 @@ export type SessionMeta = {
 	project: string;
 	cwd: string;
 	branch: string;
-	worktree: boolean;
 	created: number;
 	agentSession: string;
 };
@@ -34,7 +33,6 @@ const FIELDS = [
 	'#{@ap-project}',
 	'#{@ap-cwd}',
 	'#{@ap-branch}',
-	'#{@ap-worktree}',
 	'#{@ap-created}',
 	'#{pane_pid}',
 	'#{@ap-agent-session}',
@@ -47,7 +45,6 @@ export function metaOptions(meta: SessionMeta): Array<[string, string]> {
 		['@ap-project', meta.project],
 		['@ap-cwd', meta.cwd],
 		['@ap-branch', meta.branch],
-		['@ap-worktree', meta.worktree ? '1' : '0'],
 		['@ap-created', String(meta.created)],
 		['@ap-agent-session', meta.agentSession],
 	];
@@ -55,7 +52,7 @@ export function metaOptions(meta: SessionMeta): Array<[string, string]> {
 
 // 過濾掉手動開在同一座 socket 上、或 metadata 尚未寫完而沒有 @ap-agent 的 session
 export function parseSessionLine(line: string): SessionRecord | null {
-	const [id, dead, status, agent, project, cwd, branch, worktree, created, pid, agentSession] = line.split(SEP);
+	const [id, dead, status, agent, project, cwd, branch, created, pid, agentSession] = line.split(SEP);
 	if (!id?.startsWith(SESSION_PREFIX) || !agent || !project) return null;
 	const isDead = dead === '1';
 	const code = Number.parseInt(status ?? '', 10);
@@ -65,7 +62,6 @@ export function parseSessionLine(line: string): SessionRecord | null {
 		project,
 		cwd: cwd || project,
 		branch: branch ?? '',
-		worktree: worktree === '1',
 		created: Number(created) || 0,
 		dead: isDead,
 		exitStatus: isDead && Number.isFinite(code) ? code : null,
@@ -92,14 +88,18 @@ export async function listSessions(tmux: Tmux): Promise<SessionRecord[] | null> 
 	return sessions.sort((a, b) => a.created - b.created || a.id.localeCompare(b.id));
 }
 
-export type AgentChoice = {id: string; name: string; installed: boolean};
+export type AgentChoice = {id: string; name: string; installed: boolean; signedIn: boolean | null};
 
-export function agentChoices(path = process.env.PATH): AgentChoice[] {
-	return AGENTS.map(agent => ({
-		id: agent.id,
-		name: agent.displayName,
-		installed: resolveBin(agent.binary, platform.binDirs, path) !== null,
-	}));
+export function agentChoices(fs: HostFs = hostFs(), path = process.env.PATH): AgentChoice[] {
+	return AGENTS.map(agent => {
+		const account = agent.accountStatus(fs);
+		return {
+			id: agent.id,
+			name: agent.displayName,
+			installed: resolveBin(agent.binary, platform.binDirs, path) !== null,
+			signedIn: account === null ? null : account === 'signed-in',
+		};
+	});
 }
 
 export function newSessionId(now = Date.now()): string {
@@ -113,7 +113,6 @@ export type CreateOptions = {
 	confPath: string;
 	width: number;
 	height: number;
-	worktree?: boolean;
 	// 測試用：以一般指令取代真實 AI
 	command?: string[];
 };
@@ -137,7 +136,6 @@ export async function createSession(tmux: Tmux, opts: CreateOptions): Promise<Cr
 		project: opts.project,
 		cwd: opts.cwd,
 		branch: (await currentBranch(opts.cwd)) ?? 'HEAD',
-		worktree: opts.worktree ?? false,
 		created: Math.floor(Date.now() / 1000),
 		agentSession,
 	};

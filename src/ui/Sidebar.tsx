@@ -2,15 +2,13 @@ import React from 'react';
 import {Box, Text} from 'ink';
 import {MIN_WINDOW} from '../config/layout.ts';
 import {messageText, strings, type Lang} from '../i18n/strings.ts';
-import {filterActive, selectedConflicts, selectedIndex, visibleRows, windowTooSmall, worktreeDialogPath} from '../state/selectors.ts';
+import {filterActive, liveSessionBranch, selectedIndex, visibleRows, windowTooSmall} from '../state/selectors.ts';
 import type {AppState, Dialog, Project} from '../state/types.ts';
-import {conflictLines} from './conflictLines.ts';
 import {AddProjectDialog} from './dialogs/AddProjectDialog.tsx';
-import {CloseSessionDialog, closeSessionDialogRows} from './dialogs/CloseSessionDialog.tsx';
+import {CloseSessionDialog, CLOSE_SESSION_DIALOG_ROWS} from './dialogs/CloseSessionDialog.tsx';
 import {RemoveProjectDialog, REMOVE_PROJECT_DIALOG_ROWS} from './dialogs/RemoveProjectDialog.tsx';
 import {NewSessionDialog, newSessionDialogRows} from './dialogs/NewSessionDialog.tsx';
 import {openUrlLines} from './dialogs/openUrlLines.ts';
-import {worktreeLines} from './dialogs/worktreeLines.ts';
 import {KeyHints, listHints} from './KeyHints.tsx';
 import {Lines} from './Lines.tsx';
 import {line, type Line} from './lineParts.ts';
@@ -25,11 +23,9 @@ const ADD_PROJECT_DIALOG_ROWS = 5;
 
 const projectName = (projects: Project[], path: string) => projects.find(p => p.path === path)?.name ?? path;
 
-// M6 對話框高度會依內容變動，先轉成行資料以便計算高度；固定高度的對話框則直接回傳 null 由元件渲染
-function dialogLines(dialog: Dialog, projects: Project[], width: number, lang: Lang): Line[] | null {
+function dialogLines(dialog: Dialog, width: number, lang: Lang): Line[] | null {
 	if (dialog.kind === 'open-url') return openUrlLines(dialog, lang, width);
-	if (dialog.kind !== 'worktree') return null;
-	return worktreeLines(dialog, {projectName: projectName(projects, dialog.project), path: worktreeDialogPath(dialog)}, lang, width);
+	return null;
 }
 
 function dialogRows(dialog: Dialog | null, lines: Line[] | null): number {
@@ -38,14 +34,16 @@ function dialogRows(dialog: Dialog | null, lines: Line[] | null): number {
 	if (dialog.kind === 'add-project') return ADD_PROJECT_DIALOG_ROWS;
 	if (dialog.kind === 'remove-project') return REMOVE_PROJECT_DIALOG_ROWS;
 	if (dialog.kind === 'new-session') return newSessionDialogRows(dialog);
-	if (dialog.kind === 'close-session') return closeSessionDialogRows(dialog);
+	if (dialog.kind === 'close-session') return CLOSE_SESSION_DIALOG_ROWS;
 	return 0;
 }
 
-function DialogView({dialog, projects, width, lang}: {dialog: Dialog; projects: Project[]; width: number; lang: Lang}) {
+function DialogView({state, dialog, projects, width, lang}: {state: AppState; dialog: Dialog; projects: Project[]; width: number; lang: Lang}) {
 	if (dialog.kind === 'add-project') return <AddProjectDialog dialog={dialog} width={width} lang={lang} />;
 	if (dialog.kind === 'remove-project') return <RemoveProjectDialog dialog={dialog} width={width} lang={lang} />;
-	if (dialog.kind === 'close-session') return <CloseSessionDialog dialog={dialog} width={width} lang={lang} />;
+	if (dialog.kind === 'close-session') {
+		return <CloseSessionDialog dialog={dialog} branch={liveSessionBranch(state, dialog.session)} width={width} lang={lang} />;
+	}
 	if (dialog.kind !== 'new-session') return null;
 	return <NewSessionDialog dialog={dialog} projectName={projectName(projects, dialog.project)} width={width} lang={lang} />;
 }
@@ -87,22 +85,21 @@ export function Sidebar({state, columns, rows}: Props) {
 	const rowsData = visibleRows(state);
 	const index = selectedIndex(state, rowsData);
 	const selected = rowsData[index];
+	const isEmptyProject = selected?.kind === 'project' && state.sessions.every(s => s.project !== selected.project.path);
 	const hints = listHints({
 		focus: state.focus,
 		dialog: state.dialog?.kind ?? null,
 		row: selected?.kind ?? null,
 		isDead: selected?.kind === 'session' && selected.session.dead,
+		isEmptyProject,
 		editingFilter: state.filter.editing,
 		filtered: filterActive(state),
-		worktreeStep: state.dialog?.kind === 'worktree' ? state.dialog.step : undefined,
-		canRemoveWorktree: state.dialog?.kind === 'close-session' ? state.dialog.canRemoveWorktree : undefined,
 	}, lang);
-	const lines = state.dialog ? dialogLines(state.dialog, state.projects, inner, lang) : null;
-	const conflicts = state.dialog ? [] : conflictLines(selectedConflicts(state), lang, inner);
+	const lines = state.dialog ? dialogLines(state.dialog, inner, lang) : null;
 	// 最後一次按鍵的即時回饋（flash）優先於常駐通知（notice）
 	const message = state.flash ?? state.notice;
 	const notice = message ? wrap(messageText(lang, message), inner).map(text => line(text)) : [];
-	const footerRows = 1 + hints.length + notice.length + conflicts.length + dialogRows(state.dialog, lines);
+	const footerRows = 1 + hints.length + notice.length + dialogRows(state.dialog, lines);
 	const listHeight = Math.max(0, rows - HEADER_ROWS - footerRows);
 
 	// 視窗過矮時寧可裁掉底部按鍵提示，也不要把整個畫面推出捲軸
@@ -120,9 +117,8 @@ export function Sidebar({state, columns, rows}: Props) {
 				filtered={filterActive(state)}
 				lang={lang}
 			/>
-			{conflicts.length > 0 ? <Lines lines={conflicts} width={inner} /> : null}
 			{lines ? <Lines lines={lines} width={inner} /> : null}
-			{state.dialog && !lines ? <DialogView dialog={state.dialog} projects={state.projects} width={inner} lang={lang} /> : null}
+			{state.dialog && !lines ? <DialogView state={state} dialog={state.dialog} projects={state.projects} width={inner} lang={lang} /> : null}
 			{notice.length > 0 ? <Lines lines={notice} width={inner} /> : null}
 			<Text> </Text>
 			<KeyHints lines={hints} width={inner} />

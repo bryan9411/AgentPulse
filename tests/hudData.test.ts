@@ -149,7 +149,7 @@ describe('files on disk', () => {
 });
 
 describe('details in state', () => {
-	const session = {id: 's1', project: '/w', cwd: '/w', branch: 'main', agent: 'claude', dead: false, exitStatus: null, created: 1, agentSession: '', worktree: false};
+	const session = {id: 's1', project: '/w', cwd: '/w', branch: 'main', agent: 'claude', dead: false, exitStatus: null, created: 1, agentSession: ''};
 	test('merge per part, ignore unchanged results and closed sessions', () => {
 		let s = A.setSessions(A.initialState({...DEFAULT_CONFIG, projects: ['/w']}), [session]);
 		s = A.setDetails(s, 's1', {ports: [3000]});

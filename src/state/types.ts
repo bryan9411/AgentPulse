@@ -1,14 +1,8 @@
 import type {Config} from '../config/config.ts';
 import type {Message} from '../i18n/strings.ts';
 import type {AccountMark} from '../services/accounts.ts';
-import type {Conflict} from '../services/conflictRadar.ts';
 import type {SessionDetails} from '../services/details.ts';
 import type {SessionStatus} from '../services/status/machine.ts';
-import type {WorktreeBranchOption} from '../services/worktree.ts';
-
-// 重新匯出供 ui/ 使用，讓 ui/ 不直接匯入 services/
-export type {Conflict} from '../services/conflictRadar.ts';
-export type {WorktreeBranchOption} from '../services/worktree.ts';
 
 export type Project = {path: string; name: string};
 
@@ -24,15 +18,13 @@ export type SessionSummary = {
 	created: number;
 	// 我們指定給 AI 的對話 ID（未指定時為空字串）
 	agentSession: string;
-	// 是否透過 w 開啟的獨立 worktree 工作區（@ap-worktree）
-	worktree: boolean;
 };
 
 export type Row =
-	| {kind: 'project'; key: string; project: Project; count: number; expanded: boolean; conflict: boolean}
+	| {kind: 'project'; key: string; project: Project; branch: string | null; count: number; expanded: boolean}
 	| {kind: 'session'; key: string; session: SessionSummary};
 
-export type AgentOption = {id: string; name: string; installed: boolean};
+export type AgentOption = {id: string; name: string; installed: boolean; signedIn: boolean | null};
 
 type DialogBase = {error: Message | null; busy: boolean};
 
@@ -41,40 +33,24 @@ export type RemoveProjectDialog = DialogBase & {kind: 'remove-project'; project:
 export type NewSessionDialog = DialogBase & {
 	kind: 'new-session';
 	project: string;
-	cwd?: string;
-	branch?: string;
+	branch: string;
 	options: AgentOption[];
 	index: number;
 };
 export type CloseSessionDialog = DialogBase & {
 	kind: 'close-session';
 	session: SessionSummary;
-	canRemoveWorktree: boolean;
-	index: number;
-};
-export type WorktreeChoice = {branch: string; mode: 'create' | 'existing' | 'worktree'};
-export type WorktreeDialog = DialogBase & {
-	kind: 'worktree';
-	project: string;
-	step: 'branch' | 'agent';
-	base: string | null;
-	branches: WorktreeBranchOption[];
-	branchesLoaded: boolean;
-	value: string;
-	branchIndex: number;
-	selectedBranch: WorktreeChoice | null;
-	options: AgentOption[];
-	index: number;
 };
 export type OpenUrlDialog = DialogBase & {kind: 'open-url'; ports: number[]; index: number};
 
-export type Dialog = AddProjectDialog | RemoveProjectDialog | NewSessionDialog | CloseSessionDialog | WorktreeDialog | OpenUrlDialog;
+export type Dialog = AddProjectDialog | RemoveProjectDialog | NewSessionDialog | CloseSessionDialog | OpenUrlDialog;
 
 export type WindowSize = {columns: number; rows: number};
 
 export type AppState = {
 	config: Config;
 	projects: Project[];
+	projectBranches: Record<string, string | null>;
 	sessions: SessionSummary[];
 	sessionsLoaded: boolean;
 	collapsed: string[];
@@ -95,5 +71,4 @@ export type AppState = {
 	attentionOnly: boolean;
 	details: Record<string, SessionDetails>;
 	accounts: AccountMark[];
-	conflicts: Record<string, Conflict[]>;
 };

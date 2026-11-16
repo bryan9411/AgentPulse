@@ -1,14 +1,15 @@
 import {describe, expect, test} from 'bun:test';
+import {handleListKey, type ListKeyController} from '../src/app/useKeys.ts';
 import {DEFAULT_CONFIG} from '../src/config/config.ts';
 import * as A from '../src/state/actions.ts';
 import {
 	acceptsText,
-	activeWorktreeBranch,
 	filterActive,
 	isBlinking,
 	isViewing,
+	liveSessionBranch,
+	projectBranch,
 	projectKey,
-	selectedConflicts,
 	selectedRow,
 	selectedSession,
 	agentLabel,
@@ -18,8 +19,6 @@ import {
 	statusCounts,
 	visibleRows,
 	windowTooSmall,
-	worktreeBranchChoices,
-	worktreeDialogPath,
 } from '../src/state/selectors.ts';
 import type {SessionStatus} from '../src/services/status/machine.ts';
 import {width} from '../src/ui/text.ts';
@@ -28,7 +27,7 @@ import type {AppState, SessionSummary} from '../src/state/types.ts';
 
 const config = {...DEFAULT_CONFIG, projects: ['/w/alpha', '/w/beta']};
 const session = (id: string, project: string, branch: string, agent = 'claude'): SessionSummary => ({
-	id, project, cwd: project, branch, agent, dead: false, exitStatus: null, created: 0, agentSession: '', worktree: false,
+	id, project, cwd: project, branch, agent, dead: false, exitStatus: null, created: 0, agentSession: '',
 });
 const SESSIONS = [
 	session('a1', '/w/alpha', 'main'),
@@ -139,10 +138,17 @@ describe('state', () => {
 		expect(selectedSession(s)?.id).toBe('a2');
 	});
 
-	test('new-session dialog starts on the first installed AI and clamps', () => {
+	test('new-session dialog picks signed-in AI first (claude priority), then first installed, and clamps', () => {
+		const unsignedFirst = [
+			{id: 'claude', name: 'Claude Code', installed: true, signedIn: false},
+			{id: 'codex', name: 'Codex CLI', installed: false, signedIn: null},
+			{id: 'agy', name: 'Antigravity', installed: true, signedIn: true},
+		];
+		expect(A.defaultAgentIndex(unsignedFirst)).toBe(2);
+
 		const options = [
-			{id: 'claude', name: 'Claude Code', installed: false},
-			{id: 'codex', name: 'Codex CLI', installed: true},
+			{id: 'claude', name: 'Claude Code', installed: false, signedIn: false},
+			{id: 'codex', name: 'Codex CLI', installed: true, signedIn: null},
 		];
 		let s = A.openNewSession(A.moveSelection(withSessions(A.initialState(config)), 1), options);
 		expect(s.dialog).toMatchObject({kind: 'new-session', project: '/w/alpha', index: 1});
@@ -174,11 +180,14 @@ describe('state', () => {
 		expect(listHints({focus: 'list', dialog: null, row: 'session', isDead: true}).join(' ')).toContain('enter restart');
 		expect(listHints({focus: 'list', dialog: null, row: 'session', isDead: true}, 'zh-TW').join(' ')).toContain('enter 重新啟動');
 		expect(listHints({focus: 'list', dialog: null, row: 'project'}).join(' ')).toContain('fold');
+		expect(listHints({focus: 'list', dialog: null, row: 'project', isEmptyProject: true}).join(' ')).toContain('enter / n');
+		expect(listHints({focus: 'list', dialog: null, row: 'project', isEmptyProject: true}, 'zh-TW').join(' ')).toContain('enter / n');
 		for (const filtered of [false, true]) {
 			for (const lang of ['en', 'zh-TW'] as const) {
-				expect(listHints({focus: 'list', dialog: null, row: 'session', filtered}, lang)).toHaveLength(7);
-				expect(listHints({focus: 'list', dialog: null, row: 'session', isDead: true, filtered}, lang)).toHaveLength(7);
-				expect(listHints({focus: 'list', dialog: null, row: 'project', filtered}, lang)).toHaveLength(7);
+				expect(listHints({focus: 'list', dialog: null, row: 'session', filtered}, lang)).toHaveLength(6);
+				expect(listHints({focus: 'list', dialog: null, row: 'session', isDead: true, filtered}, lang)).toHaveLength(6);
+				expect(listHints({focus: 'list', dialog: null, row: 'project', filtered}, lang)).toHaveLength(6);
+				expect(listHints({focus: 'list', dialog: null, row: 'project', isEmptyProject: true, filtered}, lang)).toHaveLength(6);
 			}
 		}
 		expect(listHints({focus: 'list', dialog: null, row: 'session', editingFilter: true}).join(' ')).toContain('esc clear');
@@ -188,17 +197,17 @@ describe('state', () => {
 			for (const row of ['session', 'project'] as const) {
 				for (const filtered of [false, true]) {
 					for (const editingFilter of [false, true]) {
-						for (const line of listHints({focus: 'list', dialog: null, row, filtered, editingFilter}, lang)) expect(width(line)).toBeLessThanOrEqual(28);
+						for (const isEmptyProject of [false, true]) {
+							for (const line of listHints({focus: 'list', dialog: null, row, isEmptyProject, filtered, editingFilter}, lang)) {
+								expect(width(line)).toBeLessThanOrEqual(28);
+							}
+						}
 					}
 				}
 			}
-			for (const dialog of ['add-project', 'remove-project', 'new-session', 'close-session', 'worktree', 'open-url'] as const) {
-				for (const worktreeStep of ['branch', 'agent'] as const) {
-					for (const canRemoveWorktree of [false, true]) {
-						for (const line of listHints({focus: 'list', dialog, row: null, worktreeStep, canRemoveWorktree}, lang)) {
-							expect(width(line)).toBeLessThanOrEqual(28);
-						}
-					}
+			for (const dialog of ['add-project', 'remove-project', 'new-session', 'close-session', 'open-url'] as const) {
+				for (const line of listHints({focus: 'list', dialog, row: null}, lang)) {
+					expect(width(line)).toBeLessThanOrEqual(28);
 				}
 			}
 			for (const line of listHints({focus: 'ai', dialog: null, row: null}, lang)) expect(width(line)).toBeLessThanOrEqual(28);
@@ -238,78 +247,26 @@ describe('telling apart AIs on the same branch', () => {
 	});
 });
 
-describe('worktree, close and open dialogs', () => {
+describe('dynamic branches and dialogs', () => {
 	const options = [
-		{id: 'claude', name: 'Claude Code', installed: true},
-		{id: 'codex', name: 'Codex CLI', installed: false},
-		{id: 'agy', name: 'Antigravity', installed: true},
+		{id: 'claude', name: 'Claude Code', installed: true, signedIn: true},
+		{id: 'codex', name: 'Codex CLI', installed: false, signedIn: null},
+		{id: 'agy', name: 'Antigravity', installed: true, signedIn: false},
 	];
-	const onWorktree = (): AppState => {
-		const wt = {...session('w1', '/w/alpha', 'feat/x'), cwd: '/w/alpha.worktrees/feat/x', worktree: true};
-		return A.selectSession(A.setSessions(A.initialState(config), [...SESSIONS, wt]), 'w1');
-	};
 
-	test('openNewSession copies cwd and branch from a session row', () => {
-		const s = onWorktree();
+	test('project and live session branches update dynamically across project rows, session rows, and open dialog', () => {
+		let s = withSessions(A.initialState(config));
+		s = A.setProjectBranches(s, {'/w/alpha': 'dev', '/w/beta': 'main'});
+		expect(projectBranch(s, '/w/alpha')).toBe('dev');
+		expect(liveSessionBranch(s, SESSIONS[0]!)).toBe('dev');
+		expect(visibleRows(s)[0]).toMatchObject({kind: 'project', branch: 'dev'});
+		expect(A.setProjectBranches(s, {'/w/alpha': 'dev'})).toBe(s);
+
 		const opened = A.openNewSession(s, options);
-		expect(opened.dialog).toMatchObject({
-			kind: 'new-session',
-			project: '/w/alpha',
-			cwd: '/w/alpha.worktrees/feat/x',
-			branch: 'feat/x',
-		});
-	});
-
-	test('w opens branch step for the project under cursor and supports picking existing or typing new branches', () => {
-		const onSession = A.openWorktree(A.moveSelection(withSessions(A.initialState(config)), 4), options);
-		expect(onSession.dialog).toMatchObject({kind: 'worktree', project: '/w/beta', step: 'branch', value: '', branchIndex: 0});
-		const empty = A.initialState({...config, projects: []});
-		expect(A.openWorktree(empty, options)).toBe(empty);
-
-		let s = A.openWorktree(A.initialState(config), options);
-		s = A.setWorktreeBranches(s, '/w/alpha', 'dev', [
-			{branch: 'feat/old', status: 'existing'},
-			{branch: 'main', status: 'worktree'},
-		]);
-		expect(A.setWorktreeBranches(s, '/w/beta', 'dev', [])).toBe(s);
-		if (s.dialog?.kind !== 'worktree') throw new Error('expected worktree dialog');
-		expect(worktreeBranchChoices(s.dialog)).toEqual([
-			{branch: 'feat/old', mode: 'existing'},
-			{branch: 'main', mode: 'worktree'},
-		]);
-		expect(worktreeDialogPath(s.dialog)).toBe('/w/alpha.worktrees/feat/old');
-
-		s = A.editDialog(s, () => 'feat/購物車');
-		if (s.dialog?.kind !== 'worktree') throw new Error('expected worktree dialog');
-		expect(worktreeBranchChoices(s.dialog)).toEqual([{branch: 'feat/購物車', mode: 'create'}]);
-		expect(worktreeDialogPath(s.dialog)).toBe('/w/alpha.worktrees/feat/購物車');
-
-		s = A.editDialog(s, () => 'main');
-		if (s.dialog?.kind !== 'worktree') throw new Error('expected worktree dialog');
-		expect(worktreeBranchChoices(s.dialog)).toEqual([{branch: 'main', mode: 'worktree'}]);
-		expect(activeWorktreeBranch(s.dialog)).toEqual({branch: 'main', mode: 'worktree'});
-
-		s = A.advanceWorktreeAgent(s, {branch: 'main', mode: 'worktree'});
-		expect(s.dialog).toMatchObject({kind: 'worktree', step: 'agent', selectedBranch: {branch: 'main', mode: 'worktree'}});
-		expect(s.dialog && acceptsText(s.dialog)).toBe(false);
-		s = A.moveDialogChoice(s, 2);
-		expect(s.dialog).toMatchObject({index: 2});
-	});
-
-	test('close dialog offers worktree folder removal only for sole worktree sessions', () => {
-		const single = onWorktree();
-		let dlg = A.openCloseSession(single);
-		expect(dlg.dialog).toMatchObject({kind: 'close-session', canRemoveWorktree: true, index: 0});
-		dlg = A.moveDialogChoice(dlg, 1);
-		expect(dlg.dialog).toMatchObject({index: 1});
-		expect(A.moveDialogChoice(dlg, 1)).toBe(dlg);
-
-		const sharedWt = {
-			...single,
-			sessions: [...single.sessions, {...session('w2', '/w/alpha', 'feat/x', 'agy'), cwd: '/w/alpha.worktrees/feat/x', worktree: true}],
-		};
-		const sharedDlg = A.openCloseSession(sharedWt);
-		expect(sharedDlg.dialog).toMatchObject({kind: 'close-session', canRemoveWorktree: false, index: 0});
+		expect(opened.dialog).toMatchObject({kind: 'new-session', project: '/w/alpha', branch: 'dev', index: 0});
+		const switched = A.setProjectBranches(opened, {'/w/alpha': 'release/1.0'});
+		expect(switched.dialog).toMatchObject({kind: 'new-session', branch: 'release/1.0'});
+		expect(liveSessionBranch(switched, SESSIONS[0]!)).toBe('release/1.0');
 	});
 
 	test('open-url lists the ports to choose from', () => {
@@ -328,19 +285,6 @@ describe('worktree, close and open dialogs', () => {
 		expect(A.setFlash(s, null).flash).toBeNull();
 		const none = A.initialState(config);
 		expect(A.setFlash(none, null)).toBe(none);
-	});
-
-	test('conflicts mark their group row and show for the project under the cursor', () => {
-		const found = {'/w/beta': [{file: 'src/cart.ts', branches: ['feat/a', 'main']}]};
-		let s = A.setConflicts(withSessions(A.initialState(config)), found);
-		expect(A.setConflicts(s, {...found})).toBe(s);
-		const rows = visibleRows(s);
-		expect(rows.find(r => r.key === 'p:/w/alpha')).toMatchObject({conflict: false});
-		expect(rows.find(r => r.key === 'p:/w/beta')).toMatchObject({conflict: true});
-		expect(selectedConflicts(s)).toEqual([]);
-		s = A.selectSession(s, 'b1');
-		expect(selectedConflicts(s).map(c => c.file)).toEqual(['src/cart.ts']);
-		expect(selectedConflicts(A.selectProject(s, '/w/beta'))).toHaveLength(1);
 	});
 });
 
@@ -399,5 +343,40 @@ describe('session status in state', () => {
 		s = A.applyStatuses(s, {a1: status('needs-approval'), a2: status('idle'), b1: status('running')}, []);
 		expect(visibleRows(s).map(r => r.key)).toEqual(['p:/w/alpha', 's:a1']);
 		expect(s.selected).toBe('s:a1');
+	});
+
+	test('enter on an empty project opens new-session dialog, while non-empty project folds', () => {
+		const enterKey = {
+			upArrow: false, downArrow: false, leftArrow: false, rightArrow: false,
+			pageDown: false, pageUp: false, home: false, end: false,
+			return: true, escape: false, ctrl: false, shift: false,
+			tab: false, backspace: false, delete: false, meta: false,
+		} as Parameters<typeof handleListKey>[3];
+		const calls: string[] = [];
+		const ctrl: ListKeyController = {
+			focusAi: async () => { calls.push('focusAi'); },
+			zoomAi: async () => { calls.push('zoomAi'); },
+			openNewSession: () => { calls.push('openNewSession'); },
+			showDiff: async () => {},
+			showHelp: async () => {},
+			openWeb: async () => {},
+			quit: async () => {},
+			toggleLanguage: () => {},
+		};
+		let emptyState = A.initialState(config);
+		const emptyStore = {get: () => emptyState, set: (fn: (s: AppState) => AppState) => { emptyState = fn(emptyState); }};
+		handleListKey(emptyStore, ctrl, '', enterKey);
+		expect(calls).toEqual(['openNewSession']);
+		expect(emptyState.collapsed).toEqual([]);
+
+		let populatedState = withSessions(A.initialState(config));
+		const populatedStore = {get: () => populatedState, set: (fn: (s: AppState) => AppState) => { populatedState = fn(populatedState); }};
+		handleListKey(populatedStore, ctrl, '', enterKey);
+		expect(calls).toEqual(['openNewSession']);
+		expect(populatedState.collapsed).toEqual(['/w/alpha']);
+
+		populatedState = A.selectSession(populatedState, 'a1');
+		handleListKey(populatedStore, ctrl, '', enterKey);
+		expect(calls).toEqual(['openNewSession', 'focusAi']);
 	});
 });

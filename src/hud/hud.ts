@@ -193,7 +193,8 @@ export function hudLines(input: HudInput, size: number): string[] {
 		lines.push(blank);
 	} else if (input.session && input.project) {
 		const se = input.session;
-		const left = `${se.branch} · ${input.project.name} · ${se.agent}`;
+		const branch = se.details?.git?.branch ?? se.branch;
+		const left = `${branch} · ${input.project.name} · ${se.agent}`;
 		const parts = statusParts(se, input.glyphs ?? GLYPHS.unicode, lang);
 		const rightWidth = cells(parts.map(p => p.text).join(''));
 		// 空間不夠時整個右側狀態拿掉，不硬截斷文字

@@ -23,6 +23,10 @@ describe('hud', () => {
 	test('shows the project name and the end of its path', () => {
 		const [first] = plain(hudLines({tooSmall: false, project: {name: 'shop', path: '/very/long/path/to/shop'}}, 20));
 		expect(first).toBe(' shop · …ath/to/shop');
+		const [, secondEn] = plain(hudLines({tooSmall: false, project: {name: 'shop', path: '/w/shop'}, lang: 'en'}, 50));
+		const [, secondZh] = plain(hudLines({tooSmall: false, project: {name: 'shop', path: '/w/shop'}, lang: 'zh-TW'}, 50));
+		expect(secondEn?.trimEnd()).toBe(' No session yet · press n or enter');
+		expect(secondZh?.trimEnd()).toBe(' 這個專案還沒有 AI，按 n 或 enter 新增');
 	});
 
 	test('session lines keep the exact width and show an exit status', () => {
@@ -46,6 +50,22 @@ describe('hud', () => {
 		expect(first({state: 'needs-approval'}).trimEnd()).toMatch(/◐ needs approval$/);
 		expect(first({state: 'running', stalled: true}).trimEnd()).toMatch(/● running · stalled\?$/);
 		expect(first({state: null}).trimEnd()).toBe(' main · shop · claude');
+		expect(
+			first({
+				details: {
+					model: null,
+					effort: null,
+					mcp: null,
+					skills: null,
+					rules: null,
+					git: {branch: 'dev', added: 1, removed: 0, untracked: 0},
+					ports: [],
+					createdAt: null,
+					changedAt: null,
+					context: null,
+				},
+			}).trimEnd(),
+		).toBe(' dev · shop · claude');
 		expect(first({state: 'needs-approval'}, 16)).not.toContain('◐');
 		for (const size of [1, 10, 16, 17, 30, 80]) {
 			for (const state of ['running', 'needs-approval', 'idle', 'done', 'error'] as const) {

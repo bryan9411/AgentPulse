@@ -47,6 +47,45 @@ function filterKey(store: Store<AppState>, input: string, key: Key) {
 	}
 }
 
+export type ListKeyController = Pick<
+	Controller,
+	'focusAi' | 'zoomAi' | 'openNewSession' | 'showDiff' | 'showHelp' | 'openWeb' | 'quit' | 'toggleLanguage'
+>;
+
+export function handleListKey(store: Pick<Store<AppState>, 'get' | 'set'>, controller: ListKeyController, input: string, key: Key): void {
+	const state = store.get();
+	if (input === 'q') {
+		void controller.quit();
+		return;
+	}
+	if (windowTooSmall(state)) return;
+	if (state.flash) store.set(s => A.setFlash(s, null));
+	const row = selectedRow(state);
+	if (key.upArrow || input === 'k') store.set(s => A.moveSelection(s, -1));
+	else if (key.downArrow || input === 'j') store.set(s => A.moveSelection(s, 1));
+	else if (key.leftArrow || input === 'h') store.set(A.collapseSelected);
+	else if (key.rightArrow || input === 'l') store.set(A.expandSelected);
+	else if (key.return) {
+		if (row?.kind === 'session') void controller.focusAi();
+		// 專案尚無任何 AI 時摺疊空白列沒有作用，按 enter 直接開啟新增 AI 選單
+		else if (row?.kind === 'project' && state.sessions.every(s => s.project !== row.project.path)) controller.openNewSession();
+		else store.set(A.toggleSelected);
+	} else if (input === 'z') {
+		if (row?.kind === 'session') void controller.zoomAi();
+	} else if (input === 'n') controller.openNewSession();
+	else if (input === 'x') {
+		if (row?.kind === 'project') store.set(A.openRemoveProject);
+		else if (row?.kind === 'session') store.set(A.openCloseSession);
+	} else if (input === 'd') void controller.showDiff();
+	else if (input === '?') void controller.showHelp();
+	else if (input === 'o') void controller.openWeb();
+	else if (input === 'a') store.set(A.openAddProject);
+	else if (input === '/') store.set(A.startFilter);
+	else if (input === 'f') store.set(A.toggleAttentionOnly);
+	else if (input === 't') controller.toggleLanguage();
+	else if (key.escape) store.set(s => (s.attentionOnly ? A.toggleAttentionOnly(A.clearFilter(s)) : A.clearFilter(s)));
+}
+
 export function useKeys(store: Store<AppState>, controller: Controller) {
 	useInput((input, key) => {
 		const state = store.get();
@@ -58,34 +97,6 @@ export function useKeys(store: Store<AppState>, controller: Controller) {
 			filterKey(store, input, key);
 			return;
 		}
-		if (input === 'q') {
-			void controller.quit();
-			return;
-		}
-		if (windowTooSmall(state)) return;
-		if (state.flash) store.set(s => A.setFlash(s, null));
-		const row = selectedRow(state);
-		if (key.upArrow || input === 'k') store.set(s => A.moveSelection(s, -1));
-		else if (key.downArrow || input === 'j') store.set(s => A.moveSelection(s, 1));
-		else if (key.leftArrow || input === 'h') store.set(A.collapseSelected);
-		else if (key.rightArrow || input === 'l') store.set(A.expandSelected);
-		else if (key.return) {
-			if (row?.kind === 'session') void controller.focusAi();
-			else store.set(A.toggleSelected);
-		} else if (input === 'z') {
-			if (row?.kind === 'session') void controller.zoomAi();
-		} else if (input === 'n') controller.openNewSession();
-		else if (input === 'x') {
-			if (row?.kind === 'project') store.set(A.openRemoveProject);
-			else if (row?.kind === 'session') store.set(A.openCloseSession);
-		} else if (input === 'w') controller.openWorktree();
-		else if (input === 'd') void controller.showDiff();
-		else if (input === '?') void controller.showHelp();
-		else if (input === 'o') void controller.openWeb();
-		else if (input === 'a') store.set(A.openAddProject);
-		else if (input === '/') store.set(A.startFilter);
-		else if (input === 'f') store.set(A.toggleAttentionOnly);
-		else if (input === 't') controller.toggleLanguage();
-		else if (key.escape) store.set(s => (s.attentionOnly ? A.toggleAttentionOnly(A.clearFilter(s)) : A.clearFilter(s)));
+		handleListKey(store, controller, input, key);
 	});
 }

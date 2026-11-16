@@ -13,9 +13,9 @@ import {continueProcessGroup, onRefreshSignal} from '../infra/signal.ts';
 import type {Tmux} from '../infra/tmux.ts';
 import * as A from '../state/actions.ts';
 import {
-	activeWorktreeBranch,
 	agentLabel,
 	isViewing,
+	liveSessionBranch,
 	selectedProjectPath,
 	selectedRow,
 	selectedSession,
@@ -25,7 +25,7 @@ import {
 	windowTooSmall,
 } from '../state/selectors.ts';
 import type {Store} from '../state/store.ts';
-import type {AppState, CloseSessionDialog, NewSessionDialog, SessionSummary, WorktreeDialog} from '../state/types.ts';
+import type {AppState, NewSessionDialog, SessionSummary} from '../state/types.ts';
 import {GLYPHS} from '../ui/theme.ts';
 import {
 	clearLabel,
@@ -44,10 +44,9 @@ import {
 	type UiPanes,
 } from '../services/layout.ts';
 import {readAccounts} from '../services/accounts.ts';
-import {scanProject, type Conflict} from '../services/conflictRadar.ts';
 import {diffPopupCommand, helpPopupCommand} from '../services/diff.ts';
 import {contextView, contextWindow} from '../services/context/usage.ts';
-import {gitDue, readFacts} from '../services/details.ts';
+import {GIT_OTHERS_MS, GIT_SELECTED_MS, gitDue, readFacts} from '../services/details.ts';
 import {sessionPorts} from '../services/ports.ts';
 import {addProject, removeProject} from '../services/projects.ts';
 import {createScheduler, exclusive} from '../services/scheduler.ts';
@@ -63,14 +62,12 @@ import {
 	sessionExists,
 	type CreateResult,
 } from '../services/sessions.ts';
-import {checkOpenWorktree, listWorktreeBranches, openWorktree, removeWorktreeFolder} from '../services/worktree.ts';
 import {enteredAlert, isStalled, nextStatus, type SessionStatus} from '../services/status/machine.ts';
 import {notificationText, resumeAllowed, shouldNotify, type NotifyLog} from '../services/status/notify.ts';
 
 export type Controller = {
 	submitDialog(): Promise<void>;
 	openNewSession(): void;
-	openWorktree(): void;
 	showDiff(): Promise<void>;
 	showHelp(): Promise<void>;
 	openWeb(): Promise<void>;
@@ -95,7 +92,6 @@ const GIT_POLL_MS = 5000;
 const PORTS_POLL_MS = 5000;
 const FACTS_POLL_MS = 60_000;
 const ACCOUNTS_POLL_MS = 60_000;
-const RADAR_POLL_MS = 15_000;
 
 function hudInput(state: AppState): HudInput {
 	const row = selectedRow(state);
@@ -155,6 +151,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 	const resumeSent = new Map<string, number>();
 	const notified: NotifyLog = new Map();
 	const screens = new Map<string, string>();
+	const projectGitAt = new Map<string, number>();
 	const fs = hostFs();
 
 	const paintChrome = (force: boolean) => {
@@ -189,7 +186,11 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		if (!snap) return;
 		const resized = snap.hudWidth !== hudWidth;
 		hudWidth = snap.hudWidth;
-		store.set(s => A.setFocus(A.setWindow(s, snap.windowWidth, snap.windowHeight), snap.sidebarActive ? 'list' : 'ai', snap.zoomed));
+		const prevFocus = store.get().focus;
+		const nextFocus = snap.sidebarActive ? 'list' : 'ai';
+		store.set(s => A.setFocus(A.setWindow(s, snap.windowWidth, snap.windowHeight), nextFocus, snap.zoomed));
+		// 從 AI 切回清單時立即重讀分支與狀態，外部切換分支後無須等待下一次輪詢
+		if (prevFocus === 'ai' && nextFocus === 'list') void pollGit();
 		paintChrome(force || resized);
 	};
 	// hook 觸發表示尺寸或焦點有變動，即使文字內容相同也要強制重繪
@@ -218,7 +219,10 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 			return loaded.status === 'invalid' ? next : A.setConfig(next, loaded.config);
 		});
 		if (loaded.status === 'invalid') logError(loaded.error);
-		else if (loaded.config.language !== before) await applyLanguage(loaded.config.language);
+		else {
+			if (loaded.config.language !== before) await applyLanguage(loaded.config.language);
+			void pollGit();
+		}
 	};
 
 	const refreshSessions = async () => {
@@ -227,17 +231,14 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 			logError('sessions: listing failed; keeping the previous list');
 			return;
 		}
-		const sessions: SessionSummary[] = found.map(({id, project, cwd, branch, agent, dead, exitStatus, created, agentSession, worktree}) => ({
-			id, project, cwd, branch, agent, dead, exitStatus, created, agentSession, worktree,
+		const sessions: SessionSummary[] = found.map(({id, project, cwd, branch, agent, dead, exitStatus, created, agentSession}) => ({
+			id, project, cwd, branch, agent, dead, exitStatus, created, agentSession,
 		}));
 		pids.clear();
 		for (const record of found) if (!record.dead && record.pid) pids.set(record.id, record.pid);
-		const before = store.get().sessions;
-		const hadSessions = before.length > 0;
+		const hadSessions = store.get().sessions.length > 0;
 		store.set(s => A.setSessions(s, sessions));
 		void pollNewFacts();
-		// 工作階段新增或關閉時立即重掃衝突，不必等 15 秒輪詢
-		if (store.get().sessions !== before) void pollRadar();
 		// 最後一個工作階段關閉時內嵌 client 會退回佔位畫面，同步清掉邊框標題
 		if (sessions.length === 0 && hadSessions) {
 			shown = null;
@@ -337,14 +338,38 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 	const refreshGit = async () => {
 		const state = store.get();
 		const selected = selectedSession(state)?.id;
+		const activeProject = selectedProjectPath(state);
 		const now = Date.now();
-		const due = state.sessions.filter(s => gitDue(state.details[s.id], s.id === selected, now));
+		const branchPatch: Record<string, string | null> = {};
+
+		const dueSessions = state.sessions.filter(s => gitDue(state.details[s.id], s.id === selected, now));
 		await Promise.all(
-			due.map(async session => {
+			dueSessions.map(async session => {
 				const git = await gitStats(session.cwd);
 				store.set(s => A.setDetails(s, session.id, {git, gitAt: now}));
+				if (session.cwd === session.project && git) {
+					branchPatch[session.project] = git.branch;
+					projectGitAt.set(session.project, now);
+				}
 			}),
 		);
+
+		const dueProjects = state.projects.filter(project => {
+			if (project.path in branchPatch) return false;
+			const last = projectGitAt.get(project.path);
+			if (last === undefined) return true;
+			return now - last >= (project.path === activeProject ? GIT_SELECTED_MS : GIT_OTHERS_MS) - 100;
+		});
+		await Promise.all(
+			dueProjects.map(async project => {
+				branchPatch[project.path] = await currentBranch(project.path);
+				projectGitAt.set(project.path, now);
+			}),
+		);
+
+		if (Object.keys(branchPatch).length > 0) {
+			store.set(s => A.setProjectBranches(s, branchPatch));
+		}
 	};
 
 	const refreshPorts = async () => {
@@ -375,27 +400,6 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 	const refreshAccounts = async () => {
 		const accounts = readAccounts(fs);
 		store.set(s => A.setAccounts(s, accounts));
-	};
-
-	// 只掃描橫跨兩個以上工作資料夾的專案
-	const refreshConflicts = async () => {
-		const folders = new Map<string, Map<string, string>>();
-		for (const session of store.get().sessions) {
-			const byCwd = folders.get(session.project) ?? new Map<string, string>();
-			if (!byCwd.has(session.cwd)) byCwd.set(session.cwd, session.branch);
-			folders.set(session.project, byCwd);
-		}
-		const scanned = await Promise.all(
-			[...folders]
-				.filter(([, byCwd]) => byCwd.size >= 2)
-				.map(async ([project, byCwd]) => {
-					const found = await scanProject(project, [...byCwd].map(([cwd, branch]) => ({cwd, branch})));
-					return [project, found] as const;
-				}),
-		);
-		const conflicts: Record<string, Conflict[]> = {};
-		for (const [project, found] of scanned) if (found.length > 0) conflicts[project] = found;
-		store.set(s => A.setConflicts(s, conflicts));
 	};
 
 	// 只在有警告閃爍項目時切換相位，閒置清單不會白白重繪
@@ -470,7 +474,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 	scheduler.every(FACTS_POLL_MS, 'facts', () => refreshFacts(false));
 	const pollAccounts = scheduler.every(ACCOUNTS_POLL_MS, 'accounts', refreshAccounts);
 	void pollAccounts();
-	const pollRadar = scheduler.every(RADAR_POLL_MS, 'radar', refreshConflicts);
+	void pollGit();
 	timers.push(setInterval(blink, BLINK_MS));
 	// 讓「已開 42分」「3秒前有輸出」等相對時間隨時間經過持續更新
 	timers.push(setInterval(() => paintChrome(false), CLOCK_MS));
@@ -483,7 +487,9 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 			return;
 		}
 		configMtime = mtimeMs(configFile(configDir));
-		store.set(s => A.closeDialog(A.selectProject(A.setNotice(A.setConfig(s, result.config), null), result.path)));
+		const branch = await currentBranch(result.path);
+		projectGitAt.set(result.path, Date.now());
+		store.set(s => A.closeDialog(A.selectProject(A.setNotice(A.setProjectBranches(A.setConfig(s, result.config), {[result.path]: branch}), null), result.path)));
 	};
 
 	const submitRemoveProject = async (projectPath: string) => {
@@ -561,11 +567,10 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 	};
 
 	// 依目前右側 AI 窗格大小啟動，避免第一幀就用錯誤寬度排版
-	const startSession = async (opts: {agent: string; project: string; cwd: string; worktree?: boolean}): Promise<CreateResult> => {
+	const startSession = async (opts: {agent: string; project: string; cwd: string}): Promise<CreateResult> => {
 		const size = panes && (await readAiPane(ui, panes));
 		return createSession(agents, {
 			...opts,
-			worktree: opts.worktree ?? false,
 			confPath: agentsConf,
 			width: size?.width ?? 120,
 			height: size?.height ?? 36,
@@ -578,12 +583,12 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		await giveFocus(false);
 	};
 
-	const handleExistingSession = async (project: string, branch: string, agent: string): Promise<'none' | 'blocked' | 'restarted'> => {
+	const handleExistingSession = async (project: string, agent: string): Promise<'none' | 'blocked' | 'restarted'> => {
 		await refreshSessions();
-		const existing = store.get().sessions.find(s => s.project === project && s.branch === branch && s.agent === agent);
+		const existing = store.get().sessions.find(s => s.project === project && s.agent === agent);
 		if (!existing) return 'none';
 		if (!existing.dead) {
-			store.set(s => A.setDialogError(s, msg('agentBranchExists', agent, branch)));
+			store.set(s => A.setDialogError(s, msg('agentProjectExists', agent)));
 			return 'blocked';
 		}
 		store.set(A.closeDialog);
@@ -592,10 +597,8 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 	};
 
 	const submitNewSession = async (dialog: NewSessionDialog, agent: string) => {
-		const cwd = dialog.cwd ?? dialog.project;
-		const branch = (await currentBranch(cwd)) ?? dialog.branch ?? 'HEAD';
-		if ((await handleExistingSession(dialog.project, branch, agent)) !== 'none') return;
-		const result = await startSession({agent, project: dialog.project, cwd, worktree: cwd !== dialog.project});
+		if ((await handleExistingSession(dialog.project, agent)) !== 'none') return;
+		const result = await startSession({agent, project: dialog.project, cwd: dialog.project});
 		if (!result.ok) {
 			logError(`new session: ${messageText('en', result.error)}`);
 			store.set(s => A.setDialogError(s, result.error));
@@ -616,64 +619,17 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		if (shown === null) await refreshPlaceholder();
 	};
 
-	const submitCloseSession = async (dialog: CloseSessionDialog) => {
-		const {session, canRemoveWorktree, index} = dialog;
-		if (!(await closeAndForget(session.id))) {
+	const submitCloseSession = async (id: string) => {
+		if (!(await closeAndForget(id))) {
 			store.set(s => A.setDialogError(s, msg('cannotClose')));
 			return;
 		}
-		let keptDirty = false;
-		if (canRemoveWorktree && index === 1) {
-			const removed = await removeWorktreeFolder(session.project, session.cwd);
-			if (!removed.ok) {
-				keptDirty = true;
-				logError(`worktree remove ${session.cwd}: ${removed.detail}`);
-			}
-		}
 		await refreshSessions();
-		store.set(s => (keptDirty ? A.setFlash(A.closeDialog(s), msg('worktreeKeptDirty')) : A.closeDialog(s)));
+		store.set(A.closeDialog);
 		await afterClose();
-		void pollGit();
 	};
 
 	const flash = (message: Message) => store.set(s => A.setFlash(s, message));
-
-	const submitWorktreeBranch = async (dialog: WorktreeDialog) => {
-		const choice = activeWorktreeBranch(dialog);
-		if (!choice) {
-			store.set(s => A.setDialogError(s, msg('branchEmpty')));
-			return;
-		}
-		const check = await checkOpenWorktree(dialog.project, choice.branch);
-		if (!check.ok) {
-			store.set(s => A.setDialogError(s, check.error));
-			return;
-		}
-		const mode = check.mode === 'reuse' ? 'worktree' : check.mode;
-		store.set(s => A.advanceWorktreeAgent(s, {branch: check.branch, mode}));
-	};
-
-	const submitWorktreeAgent = async (dialog: WorktreeDialog, agent: string) => {
-		const branch = dialog.selectedBranch?.branch ?? activeWorktreeBranch(dialog)?.branch ?? '';
-		if (!branch) {
-			store.set(s => A.setDialogError(s, msg('branchEmpty')));
-			return;
-		}
-		if ((await handleExistingSession(dialog.project, branch, agent)) !== 'none') return;
-		const made = await openWorktree(dialog.project, branch);
-		if (!made.ok) {
-			store.set(s => A.setDialogError(s, made.error));
-			return;
-		}
-		const result = await startSession({agent, project: dialog.project, cwd: made.path, worktree: true});
-		if (!result.ok) {
-			// AI 啟動失敗時不自動回滾刪除資料夾，保留給使用者自行處理
-			logError(`worktree ${made.path}: ${messageText('en', result.error)}`);
-			store.set(s => A.setDialogError(s, msg('worktreeNoAi')));
-			return;
-		}
-		await enterSession(result.id);
-	};
 
 	const openPort = async (port: number): Promise<boolean> => {
 		const ok = await platform.openUrl(`http://localhost:${port}`);
@@ -695,7 +651,8 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 			const state = store.get();
 			const lang = state.config.language;
 			const projectName = state.projects.find(p => p.path === session.project)?.name ?? basename(session.cwd);
-			const title = session.branch ? `${projectName} (${session.branch})` : projectName;
+			const branch = liveSessionBranch(state, session);
+			const title = branch ? `${projectName} (${branch})` : projectName;
 			popupOpen = true;
 			try {
 				if (!(await showPopup(ui, diffPopupCommand(session.cwd, lang, title)))) {
@@ -729,7 +686,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 			const dialog = store.get().dialog;
 			if (!dialog || dialog.busy) return;
 			let agent = '';
-			if (dialog.kind === 'new-session' || (dialog.kind === 'worktree' && dialog.step === 'agent')) {
+			if (dialog.kind === 'new-session') {
 				const option = dialog.options[dialog.index];
 				if (!option) return;
 				if (!option.installed) {
@@ -744,14 +701,11 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 				if (dialog.kind === 'add-project') await submitAddProject(dialog.value);
 				else if (dialog.kind === 'remove-project') await submitRemoveProject(dialog.project.path);
 				else if (dialog.kind === 'new-session') await submitNewSession(dialog, agent);
-				else if (dialog.kind === 'worktree') {
-					if (dialog.step === 'branch') await submitWorktreeBranch(dialog);
-					else await submitWorktreeAgent(dialog, agent);
-				} else if (dialog.kind === 'open-url') {
+				else if (dialog.kind === 'open-url') {
 					const port = dialog.ports[dialog.index];
 					if (port !== undefined && (await openPort(port))) store.set(A.closeDialog);
 					else store.set(s => A.setDialogError(s, msg('openFailed')));
-				} else if (dialog.kind === 'close-session') await submitCloseSession(dialog);
+				} else if (dialog.kind === 'close-session') await submitCloseSession(dialog.session.id);
 			} catch (error) {
 				logError(`dialog ${dialog.kind}: ${String(error)}`);
 				store.set(s => A.setDialogError(s, msg('failed')));
@@ -761,23 +715,12 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 			}
 		},
 		openNewSession() {
-			store.set(s => A.openNewSession(s, agentChoices()));
-			const row = selectedRow(store.get());
-			if (row?.kind === 'project') {
-				void currentBranch(row.project.path).then(branch => {
-					if (branch) {
-						store.set(s => (s.dialog?.kind === 'new-session' && s.dialog.project === row.project.path && !s.dialog.branch ? {...s, dialog: {...s.dialog, branch}} : s));
-					}
-				});
-			}
-		},
-		openWorktree() {
 			const project = selectedProjectPath(store.get());
 			if (!project) return;
-			// 先開啟對話框讓使用者直接輸入或等候既有分支列表載入完成
-			store.set(s => A.openWorktree(s, agentChoices()));
-			void listWorktreeBranches(project).then(({base, branches}) => {
-				store.set(s => A.setWorktreeBranches(s, project, base, branches));
+			store.set(s => A.openNewSession(s, agentChoices(fs)));
+			void currentBranch(project).then(branch => {
+				projectGitAt.set(project, Date.now());
+				store.set(s => A.setProjectBranches(s, {[project]: branch}));
 			});
 		},
 		showDiff,

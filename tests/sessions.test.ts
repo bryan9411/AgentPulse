@@ -41,7 +41,6 @@ describe('sessions', () => {
 			project: repo,
 			cwd: repo,
 			branch: 'feat/購物車',
-			worktree: false,
 			dead: false,
 			exitStatus: null,
 		});
@@ -101,8 +100,8 @@ describe('sessions', () => {
 	});
 
 	test('line parsing', () => {
-		expect(parseSessionLine('agentpulse-x\t0\t\tclaude\t/p\t\tmain\t1\t5')).toMatchObject({cwd: '/p', worktree: true, created: 5});
-		expect(parseSessionLine('random\t0\t\tclaude\t/p\t/p\tmain\t0\t5')).toBeNull();
+		expect(parseSessionLine('agentpulse-x\t0\t\tclaude\t/p\t\tmain\t5')).toMatchObject({cwd: '/p', branch: 'main', created: 5});
+		expect(parseSessionLine('random\t0\t\tclaude\t/p\t/p\tmain\t5')).toBeNull();
 		expect(parseSessionLine('')).toBeNull();
 	});
 });

@@ -1,18 +1,17 @@
 import {basename} from 'node:path';
 import {DEFAULT_CONFIG, type Config} from '../config/config.ts';
 import {ALERT_STATES, type SessionStatus} from '../services/status/machine.ts';
-import {acceptsText, isViewing, projectKey, selectedIndex, selectedProjectPath, selectedRow, sessionKey, visibleRows, worktreeBranchChoices} from './selectors.ts';
+import {acceptsText, isViewing, projectBranch, projectKey, selectedIndex, selectedRow, sessionKey, visibleRows} from './selectors.ts';
 import type {AccountMark} from '../services/accounts.ts';
-import type {Conflict} from '../services/conflictRadar.ts';
 import type {SessionDetails} from '../services/details.ts';
-import type {WorktreeBranchOption} from '../services/worktree.ts';
 import type {Lang, Message} from '../i18n/strings.ts';
-import type {AgentOption, AppState, Project, SessionSummary, WorktreeChoice} from './types.ts';
+import type {AgentOption, AppState, Project, SessionSummary} from './types.ts';
 
 export function initialState(config: Config = DEFAULT_CONFIG): AppState {
 	return withSelection({
 		config,
 		projects: toProjects(config.projects),
+		projectBranches: {},
 		sessions: [],
 		sessionsLoaded: false,
 		collapsed: [],
@@ -30,7 +29,6 @@ export function initialState(config: Config = DEFAULT_CONFIG): AppState {
 		attentionOnly: false,
 		details: {},
 		accounts: [],
-		conflicts: {},
 	});
 }
 
@@ -124,10 +122,16 @@ export function openAddProject(state: AppState): AppState {
 	return {...state, dialog: {kind: 'add-project', value: '', error: null, busy: false}};
 }
 
+// 優先預選已安裝且已登入的 AI（預設順位 claude 優先），若皆未登入才退回第一套已安裝的 AI
+export function defaultAgentIndex(options: readonly AgentOption[]): number {
+	const signedIn = options.findIndex(o => o.installed && o.signedIn === true);
+	if (signedIn !== -1) return signedIn;
+	return Math.max(0, options.findIndex(o => o.installed));
+}
+
 export function editDialog(state: AppState, edit: (value: string) => string): AppState {
 	const d = state.dialog;
 	if (!d || d.busy || !acceptsText(d)) return state;
-	if (d.kind === 'worktree') return {...state, dialog: {...d, value: edit(d.value), branchIndex: 0, error: null}};
 	return {...state, dialog: {...d, value: edit(d.value), error: null}};
 }
 
@@ -135,77 +139,19 @@ export function openNewSession(state: AppState, options: AgentOption[]): AppStat
 	const row = selectedRow(state);
 	if (!row) return state;
 	const project = row.kind === 'project' ? row.project.path : row.session.project;
-	const cwd = row.kind === 'session' ? row.session.cwd : row.project.path;
-	const branch = row.kind === 'session' ? row.session.branch : '';
-	const index = Math.max(0, options.findIndex(o => o.installed));
-	return {...state, dialog: {kind: 'new-session', project, cwd, branch, options, index, error: null, busy: false}};
+	const branch = projectBranch(state, project) ?? (row.kind === 'session' ? row.session.branch : '');
+	const index = defaultAgentIndex(options);
+	return {...state, dialog: {kind: 'new-session', project, branch, options, index, error: null, busy: false}};
 }
 
 export function moveDialogChoice(state: AppState, delta: number): AppState {
 	const d = state.dialog;
 	if (!d || d.busy) return state;
-	if (d.kind === 'worktree' && d.step === 'branch') {
-		const count = worktreeBranchChoices(d).length;
-		if (count === 0) return state;
-		const branchIndex = Math.min(count - 1, Math.max(0, d.branchIndex + delta));
-		return branchIndex === d.branchIndex ? state : {...state, dialog: {...d, branchIndex, error: null}};
-	}
-	if (d.kind === 'close-session') {
-		if (!d.canRemoveWorktree) return state;
-		const index = Math.min(1, Math.max(0, d.index + delta));
-		return index === d.index ? state : {...state, dialog: {...d, index, error: null}};
-	}
-	if (d.kind !== 'new-session' && d.kind !== 'worktree' && d.kind !== 'open-url') return state;
+	if (d.kind !== 'new-session' && d.kind !== 'open-url') return state;
 	const count = d.kind === 'open-url' ? d.ports.length : d.options.length;
 	if (count === 0) return state;
 	const index = Math.min(count - 1, Math.max(0, d.index + delta));
 	return index === d.index ? state : {...state, dialog: {...d, index, error: null}};
-}
-
-export function openWorktree(state: AppState, options: AgentOption[]): AppState {
-	const project = selectedProjectPath(state);
-	if (!project) return state;
-	const index = Math.max(0, options.findIndex(o => o.installed));
-	return {
-		...state,
-		dialog: {
-			kind: 'worktree',
-			project,
-			step: 'branch',
-			base: null,
-			branches: [],
-			branchesLoaded: false,
-			value: '',
-			branchIndex: 0,
-			selectedBranch: null,
-			options,
-			index,
-			error: null,
-			busy: false,
-		},
-	};
-}
-
-export function setWorktreeBranches(
-	state: AppState,
-	project: string,
-	base: string | null,
-	branches: WorktreeBranchOption[],
-): AppState {
-	const d = state.dialog;
-	if (d?.kind !== 'worktree' || d.project !== project) return state;
-	const next = {...d, base, branches, branchesLoaded: true};
-	const count = worktreeBranchChoices(next).length;
-	return {
-		...state,
-		dialog: {...next, branchIndex: count === 0 ? 0 : Math.min(d.branchIndex, count - 1)},
-	};
-}
-
-export function advanceWorktreeAgent(state: AppState, choice: WorktreeChoice): AppState {
-	const d = state.dialog;
-	if (d?.kind !== 'worktree') return state;
-	return {...state, dialog: {...d, step: 'agent', selectedBranch: choice, error: null, busy: false}};
 }
 
 export function openUrlChoice(state: AppState, ports: number[]): AppState {
@@ -215,11 +161,7 @@ export function openUrlChoice(state: AppState, ports: number[]): AppState {
 export function openCloseSession(state: AppState): AppState {
 	const row = selectedRow(state);
 	if (row?.kind !== 'session') return state;
-	const canRemoveWorktree =
-		row.session.worktree &&
-		row.session.cwd !== row.session.project &&
-		!state.sessions.some(s => s.id !== row.session.id && s.cwd === row.session.cwd);
-	return {...state, dialog: {kind: 'close-session', session: row.session, canRemoveWorktree, index: 0, error: null, busy: false}};
+	return {...state, dialog: {kind: 'close-session', session: row.session, error: null, busy: false}};
 }
 
 export function openRemoveProject(state: AppState): AppState {
@@ -322,6 +264,20 @@ export function setAccounts(state: AppState, accounts: AccountMark[]): AppState 
 	return JSON.stringify(state.accounts) === JSON.stringify(accounts) ? state : {...state, accounts};
 }
 
-export function setConflicts(state: AppState, conflicts: Record<string, Conflict[]>): AppState {
-	return JSON.stringify(state.conflicts) === JSON.stringify(conflicts) ? state : {...state, conflicts};
+export function setProjectBranches(state: AppState, patch: Record<string, string | null>): AppState {
+	let changed = false;
+	const next = {...state.projectBranches};
+	for (const [path, branch] of Object.entries(patch)) {
+		if (next[path] !== branch) {
+			next[path] = branch;
+			changed = true;
+		}
+	}
+	if (!changed) return state;
+	let dialog = state.dialog;
+	if (dialog?.kind === 'new-session' && dialog.project in patch) {
+		const live = patch[dialog.project];
+		if (live && live !== dialog.branch) dialog = {...dialog, branch: live};
+	}
+	return {...state, projectBranches: next, dialog};
 }

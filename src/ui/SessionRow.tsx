@@ -8,6 +8,7 @@ import {padEnd, width as cells} from './text.ts';
 
 type Props = {
 	session: SessionSummary;
+	branch: string;
 	label: string;
 	state: AgentState;
 	// 閃爍符號的熄滅相位：該格畫成空白
@@ -17,14 +18,14 @@ type Props = {
 	glyphs: Glyphs;
 };
 
-export function SessionRow({session, label, state, hidden, selected, width, glyphs}: Props) {
+export function SessionRow({session, branch, label, state, hidden, selected, width, glyphs}: Props) {
 	const agentText = ` ${label}`;
 	const branchWidth = Math.max(0, width - 4 - cells(agentText));
 	const {glyph, color} = stateGlyph(state, glyphs);
 	return (
 		<Text backgroundColor={selected ? COLORS.selected : undefined}>
 			<Text color={color}>{`  ${hidden ? ' ' : glyph} `}</Text>
-			<Text color={session.dead ? COLORS.dim : COLORS.text}>{padEnd(session.branch, branchWidth)}</Text>
+			<Text color={session.dead ? COLORS.dim : COLORS.text}>{padEnd(branch, branchWidth)}</Text>
 			<Text color={COLORS.dim}>{agentText}</Text>
 		</Text>
 	);

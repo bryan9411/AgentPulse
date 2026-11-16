@@ -1,9 +1,7 @@
 import type {AgentState} from '../agents/types.ts';
 import {MIN_WINDOW} from '../config/layout.ts';
-import {involvedBranches, type Conflict} from '../services/conflictRadar.ts';
 import {ALERT_STATES} from '../services/status/machine.ts';
-import {worktreePath, worktreeRoot} from '../services/worktree.ts';
-import type {AddProjectDialog, AppState, Dialog, Project, Row, SessionSummary, WorktreeChoice, WorktreeDialog} from './types.ts';
+import type {AddProjectDialog, AppState, Dialog, Project, Row, SessionSummary} from './types.ts';
 
 export const projectKey = (path: string) => `p:${path}`;
 export const sessionKey = (id: string) => `s:${id}`;
@@ -21,11 +19,21 @@ export function filterActive(state: AppState): boolean {
 	return state.attentionOnly || state.filter.text.trim() !== '';
 }
 
+export function projectBranch(state: AppState, projectPath: string): string | null {
+	return state.projectBranches[projectPath] ?? null;
+}
+
+// 優先顯示即時偵測到的分支，讓外部切換分支時側欄與 HUD 同步切換
+export function liveSessionBranch(state: AppState, session: SessionSummary): string {
+	return state.details[session.id]?.git?.branch ?? state.projectBranches[session.project] ?? session.branch;
+}
+
 const contains = (text: string, needle: string) => text.toLowerCase().includes(needle);
 
 function sessionVisible(state: AppState, project: Project, session: SessionSummary): boolean {
 	const needle = state.filter.text.trim().toLowerCase();
-	if (needle && !contains(project.name, needle) && !contains(session.branch, needle) && !contains(session.agent, needle)) {
+	const branch = liveSessionBranch(state, session);
+	if (needle && !contains(project.name, needle) && !contains(branch, needle) && !contains(session.agent, needle)) {
 		return false;
 	}
 	return !state.attentionOnly || needsUser(state, session);
@@ -40,8 +48,14 @@ export function visibleRows(state: AppState): Row[] {
 		// 篩選時若專案本身沒有符合的工作階段，只有專案名稱符合關鍵字才保留該群組列
 		if (filtering && sessions.length === 0 && (state.attentionOnly || !needle || !contains(project.name, needle))) continue;
 		const expanded = !state.collapsed.includes(project.path);
-		const conflict = (state.conflicts[project.path]?.length ?? 0) > 0;
-		rows.push({kind: 'project', key: projectKey(project.path), project, count: sessions.length, expanded, conflict});
+		rows.push({
+			kind: 'project',
+			key: projectKey(project.path),
+			project,
+			branch: projectBranch(state, project.path),
+			count: sessions.length,
+			expanded,
+		});
 		if (!expanded) continue;
 		for (const session of sessions) rows.push({kind: 'session', key: sessionKey(session.id), session});
 	}
@@ -68,8 +82,9 @@ export function windowTooSmall(state: AppState): boolean {
 
 // 同專案、同分支且同 AI 有多個工作階段時依建立時間排序編號，從第 2 個起顯示 "#2"
 export function sessionSeq(state: AppState, session: SessionSummary): number {
+	const targetBranch = liveSessionBranch(state, session);
 	const twins = state.sessions
-		.filter(s => s.project === session.project && s.branch === session.branch && s.agent === session.agent)
+		.filter(s => s.project === session.project && liveSessionBranch(state, s) === targetBranch && s.agent === session.agent)
 		.sort((a, b) => a.created - b.created || a.id.localeCompare(b.id));
 	return twins.length < 2 ? 0 : twins.findIndex(s => s.id === session.id) + 1;
 }
@@ -107,42 +122,6 @@ export function selectedProjectPath(state: AppState): string | null {
 	return row.kind === 'project' ? row.project.path : row.session.project;
 }
 
-export function selectedConflicts(state: AppState): readonly Conflict[] {
-	const path = selectedProjectPath(state);
-	return (path && state.conflicts[path]) || [];
-}
-
-export function conflictBranchCount(conflicts: readonly Conflict[]): number {
-	return involvedBranches(conflicts);
-}
-
-// 只有需要文字輸入的對話框階段才攔截一般字元（worktree 僅在選擇／輸入分支時收文字）
-export function acceptsText(dialog: Dialog): dialog is AddProjectDialog | WorktreeDialog {
-	if (dialog.kind === 'worktree') return dialog.step === 'branch';
+export function acceptsText(dialog: Dialog): dialog is AddProjectDialog {
 	return dialog.kind === 'add-project';
-}
-
-export function worktreeBranchChoices(dialog: WorktreeDialog): WorktreeChoice[] {
-	const typed = dialog.value.trim();
-	const needle = typed.toLowerCase();
-	const matched: WorktreeChoice[] = dialog.branches
-		.filter(b => !needle || b.branch.toLowerCase().includes(needle))
-		.map(b => ({branch: b.branch, mode: b.status}));
-	const exact = typed !== '' && dialog.branches.some(b => b.branch === typed);
-	if (typed && !exact) return [{branch: typed, mode: 'create'}, ...matched];
-	return matched;
-}
-
-export function activeWorktreeBranch(dialog: WorktreeDialog): WorktreeChoice | null {
-	if (dialog.selectedBranch) return dialog.selectedBranch;
-	const choices = worktreeBranchChoices(dialog);
-	if (choices.length === 0) return null;
-	const index = Math.min(Math.max(0, dialog.branchIndex), choices.length - 1);
-	return choices[index] ?? null;
-}
-
-// 尚未選出或輸入任何分支名稱時先顯示父資料夾路徑，讓對話框高度固定
-export function worktreeDialogPath(dialog: WorktreeDialog): string {
-	const chosen = activeWorktreeBranch(dialog)?.branch;
-	return chosen ? worktreePath(dialog.project, chosen) : `${worktreeRoot(dialog.project)}/`;
 }

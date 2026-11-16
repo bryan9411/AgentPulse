@@ -1,5 +1,5 @@
 import {basename, dirname} from 'node:path';
-import {exec, resolveBin, type ExecFail, type ExecOptions} from './exec.ts';
+import {exec, resolveBin, type ExecOptions} from './exec.ts';
 import {platform} from './platform/index.ts';
 
 let cachedBin: string | null | undefined;
@@ -45,89 +45,9 @@ export async function gitStats(dir: string): Promise<GitStats | null> {
 	return {branch, ...counts, untracked: files};
 }
 
-// commit hook、大量檔案合併或刪除大型資料夾都可能超過一般 5 秒逾時
-const SLOW_MS = 120_000;
-
-export type GitResult = {ok: true} | {ok: false; detail: string};
-
-// git 輸出會受系統語系影響，只原樣顯示給使用者看、不以字串內容做程式判斷
-function failure(result: ExecFail): GitResult {
-	const lines = `${result.stderr}\n${result.stdout}`.split('\n').map(line => line.trim()).filter(Boolean);
-	return {ok: false, detail: result.kind === 'exit' ? (lines[0] ?? result.message) : result.message};
-}
-
-const outcome = async (run: ReturnType<typeof git>): Promise<GitResult> => {
-	const result = await run;
-	return result.ok ? {ok: true} : failure(result);
-};
-
-const zList = (text: string) => text.split('\0').filter(Boolean);
-
-export async function validBranchName(dir: string, name: string): Promise<boolean> {
-	return (await git(dir, ['check-ref-format', '--branch', name])).ok;
-}
-
-export async function branchExists(dir: string, name: string): Promise<boolean> {
-	return (await git(dir, ['show-ref', '--verify', '--quiet', `refs/heads/${name}`])).ok;
-}
-
 export async function headCommit(dir: string): Promise<string | null> {
 	const result = await git(dir, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']);
 	return result.ok ? result.stdout.trim() || null : null;
-}
-
-export type WorktreeEntry = {
-	path: string;
-	branch: string | null;
-};
-
-// 解析 `git worktree list --porcelain -z`：各區塊以空欄位分隔，分支格式為 "branch refs/heads/<name>"
-export function parseWorktreeListZ(text: string): WorktreeEntry[] {
-	const entries: WorktreeEntry[] = [];
-	let currentPath: string | null = null;
-	let currentBranch: string | null = null;
-	const flush = () => {
-		if (currentPath !== null) entries.push({path: currentPath, branch: currentBranch});
-		currentPath = null;
-		currentBranch = null;
-	};
-	for (const field of text.split('\0')) {
-		if (field === '') {
-			flush();
-			continue;
-		}
-		if (field.startsWith('worktree ')) currentPath = field.slice('worktree '.length);
-		else if (field.startsWith('branch refs/heads/')) currentBranch = field.slice('branch refs/heads/'.length);
-	}
-	flush();
-	return entries;
-}
-
-export async function worktreeEntries(project: string): Promise<WorktreeEntry[]> {
-	const result = await git(project, ['worktree', 'list', '--porcelain', '-z']);
-	return result.ok ? parseWorktreeListZ(result.stdout) : [];
-}
-
-export async function localBranches(project: string): Promise<string[]> {
-	const result = await git(project, ['for-each-ref', '--format=%(refname:short)', 'refs/heads']);
-	return result.ok ? result.stdout.split('\n').map(b => b.trim()).filter(Boolean) : [];
-}
-
-export function worktreeAddNew(project: string, branch: string, path: string, startPoint: string): Promise<GitResult> {
-	return outcome(git(project, ['worktree', 'add', '-b', branch, path, startPoint], {timeoutMs: SLOW_MS}));
-}
-
-export function worktreeAddExisting(project: string, branch: string, path: string): Promise<GitResult> {
-	return outcome(git(project, ['worktree', 'add', path, branch], {timeoutMs: SLOW_MS}));
-}
-
-// 不使用強制選項：資料夾內若有未提交或未追蹤檔案讓 git 自行拒絕
-export function worktreeRemove(project: string, path: string): Promise<GitResult> {
-	return outcome(git(project, ['worktree', 'remove', path], {timeoutMs: SLOW_MS}));
-}
-
-export function worktreePrune(project: string): Promise<GitResult> {
-	return outcome(git(project, ['worktree', 'prune'], {timeoutMs: SLOW_MS}));
 }
 
 export type StatusEntry = {
@@ -157,10 +77,4 @@ export function parseStatusZ(text: string): StatusEntry[] {
 export async function statusEntries(dir: string): Promise<StatusEntry[] | null> {
 	const result = await git(dir, ['status', '--porcelain', '-z', '--untracked-files=all']);
 	return result.ok ? parseStatusZ(result.stdout) : null;
-}
-
-// 加上 --no-renames：若偵測更名會連舊路徑一起算進來，可能誤報其他分支正在修改的檔案
-export async function committedFiles(dir: string, base: string): Promise<string[] | null> {
-	const result = await git(dir, ['diff', '--name-only', '--no-renames', '-z', `${base}...HEAD`]);
-	return result.ok ? zList(result.stdout) : null;
 }
