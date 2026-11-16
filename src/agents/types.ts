@@ -40,6 +40,8 @@ export type AgentAdapter = {
 	pinsSessionId: boolean;
 	// argv[0] is the bare binary name; the caller swaps in the resolved path.
 	launchCommand(opts: {cwd: string; sessionId: string | null}): string[];
+	// Optional command when restarting an exited session (e.g. --resume instead of --session-id).
+	restartCommand?(fs: HostFs, opts: {cwd: string; sessionId: string | null}): string[];
 	// Recognises the agent in a process listing (external sessions, ports).
 	matchProcess(commandLine: string): boolean;
 	// null: the screen is not one the adapter recognises; the caller then

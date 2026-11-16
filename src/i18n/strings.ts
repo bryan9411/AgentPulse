@@ -48,6 +48,7 @@ const en = {
 		filterOn: '/ filter · f · esc clear',
 		filterOff: '/ filter · f needs you',
 		session: ['↑↓ move · enter type', 'z zoom · x close · n new', 'w worktree · m merge', 'd diff · o open web'],
+		sessionDead: ['↑↓ move · enter restart', 'z zoom · x close · n new', 'w worktree · m merge', 'd diff · o open web'],
 		// Padded to as many lines as `session` so the list does not jump.
 		project: ['↑↓ move · ←→ fold', 'n new session', 'w worktree (new branch)', 'x remove project'],
 		// Names the other language in its own script so it can be found
@@ -129,6 +130,7 @@ const en = {
 		notInstalled: '{0} is not installed',
 		unknownAgent: 'Unknown AI: {0}',
 		binaryMissing: '{0} not found on PATH',
+		agentBranchExists: '{0} is already running on this branch',
 		startFailed: 'Could not start the AI: {0}',
 		cannotShow: 'Could not show this session',
 		cannotClose: 'Could not close the session',
@@ -178,7 +180,7 @@ const en = {
 	topBar: {sessions: (n: number) => (n === 1 ? '1 session' : `${n} sessions`)},
 	notify: {error: 'stopped with an error', approval: 'needs your approval'},
 	tmux: {
-		exited: (status: string) => `AI exited (status ${status}) · ctrl+q, then x to close`,
+		exited: (status: string) => `AI exited (status ${status}) · ctrl+q, then enter to restart or x to close`,
 		placeholder: 'No session · select a project and press n',
 	},
 	// The ? popup. Keys are never translated (SPEC 3.3).
@@ -280,6 +282,7 @@ const zhTW: Strings = {
 		filterOn: '/ 搜尋 · f · esc 清除',
 		filterOff: '/ 搜尋 · f 只看要處理的',
 		session: ['↑↓ 選擇 · enter 跟 AI 對話', 'z 放大 · x 關閉 · n 新增 AI', 'w 開新分支 · m 合併回主線', 'd 看修改 · o 開網頁'],
+		sessionDead: ['↑↓ 選擇 · enter 重新啟動', 'z 放大 · x 關閉 · n 新增 AI', 'w 開新分支 · m 合併回主線', 'd 看修改 · o 開網頁'],
 		project: ['↑↓ 選擇 · ←→ 收合展開', 'n 新增 AI', 'w 開新分支（另開資料夾）', 'x 移除專案'],
 		tail: ['a 加入專案 · q 離開', '? 說明 · t English'],
 	},
@@ -356,6 +359,7 @@ const zhTW: Strings = {
 		notInstalled: '{0} 還沒安裝',
 		unknownAgent: '不認得的 AI：{0}',
 		binaryMissing: '找不到 {0} 程式',
+		agentBranchExists: '此分支已有相同的 AI（{0}）',
 		startFailed: '無法啟動 AI：{0}',
 		cannotShow: '無法顯示這個 AI',
 		cannotClose: '無法關閉這個 AI',
@@ -405,7 +409,7 @@ const zhTW: Strings = {
 	topBar: {sessions: n => `${n} 個 AI`},
 	notify: {error: '出錯停下來了', approval: '在等你同意'},
 	tmux: {
-		exited: status => `AI 已結束（結束碼 ${status}）· 按 ctrl+q 回到左邊，再按 x 關閉`,
+		exited: status => `AI 已結束（結束碼 ${status}）· 按 ctrl+q 回到左邊，再按 enter 重新啟動或 x 關閉`,
 		placeholder: '還沒有 AI · 在左邊選一個專案，按 n 新增',
 	},
 	help: {

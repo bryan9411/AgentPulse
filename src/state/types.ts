@@ -41,7 +41,15 @@ type DialogBase = {error: Message | null; busy: boolean};
 
 export type AddProjectDialog = DialogBase & {kind: 'add-project'; value: string};
 export type RemoveProjectDialog = DialogBase & {kind: 'remove-project'; project: Project; sessionCount: number};
-export type NewSessionDialog = DialogBase & {kind: 'new-session'; project: string; options: AgentOption[]; index: number};
+export type NewSessionDialog = DialogBase & {
+	kind: 'new-session';
+	project: string;
+	cwd?: string;
+	branch?: string;
+	base?: string;
+	options: AgentOption[];
+	index: number;
+};
 export type CloseSessionDialog = DialogBase & {kind: 'close-session'; session: SessionSummary};
 // SPEC 5.9. `base` is null until the main folder's branch has been read.
 export type WorktreeDialog = DialogBase & {

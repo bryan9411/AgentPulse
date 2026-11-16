@@ -44,7 +44,10 @@ describe('tmux helpers', () => {
 		expect(ag).toContain('set -g history-limit 50000');
 		expect(ag).toContain('set -g status off');
 		expect(ag).toContain('AI exited (status #{pane_dead_status})');
-		expect(agentsTmuxConf('zh-TW')).toContain('AI 已結束（結束碼 #{pane_dead_status}）· 按 ctrl+q 回到左邊，再按 x 關閉');
+		expect(agentsTmuxConf('zh-TW')).toContain('AI 已結束（結束碼 #{pane_dead_status}）· 按 ctrl+q 回到左邊，再按 enter 重新啟動或 x 關閉');
+		expect(ui).toContain('bind-key -T root MouseDrag1Pane if-shell -F "#{||:#{pane_in_mode},#{mouse_any_flag}}" { send-keys -M } { }');
+		expect(ag).toContain('copy-pipe-no-clear');
+		expect(ag).toContain('MouseUp1Pane send-keys -X cancel');
 	});
 });
 

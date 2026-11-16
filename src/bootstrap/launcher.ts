@@ -1,3 +1,4 @@
+import {statSync} from 'node:fs';
 import {join} from 'node:path';
 import {homedir} from 'node:os';
 import {configDir, loadConfig} from '../config/config.ts';
@@ -20,10 +21,24 @@ function fail(message: string): never {
 	process.exit(1);
 }
 
+function isCompiled(): boolean {
+	return Bun.main.startsWith('/$bunfs') || !/\.(tsx?|jsx?)$/.test(Bun.main);
+}
+
+function currentBuildStamp(): string {
+	const compiled = isCompiled();
+	const target = compiled ? process.execPath : Bun.main;
+	try {
+		const stat = statSync(target);
+		return `${compiled ? 'bin' : 'src'}:${stat.mtimeMs}:${stat.size}`;
+	} catch {
+		return compiled ? 'bin:unknown' : `src:${Bun.main}`;
+	}
+}
+
 // How the sidebar pane re-runs this same program, compiled or from source.
 export function selfCommand(role: string): string {
-	const compiled = Bun.main.startsWith('/$bunfs') || !/\.(tsx?|jsx?)$/.test(Bun.main);
-	return compiled
+	return isCompiled()
 		? `${shellQuote(process.execPath)} --role=${role}`
 		: `${shellQuote(process.execPath)} run ${shellQuote(Bun.main)} --role=${role}`;
 }
@@ -56,8 +71,10 @@ export async function launch(opts: LaunchOptions): Promise<number> {
 	writeTextAtomic(uiConf, uiTmuxConf());
 	writeTextAtomic(agentsConf, agentsTmuxConf(config.language));
 
+	const buildStamp = currentBuildStamp();
 	const ui = createTmux(UI_SOCKET, tmuxPath);
-	if (opts.restartUi || !(await uiAlive(ui))) {
+	const runningBuild = (await uiAlive(ui)) ? await ui.out(['show', '-v', '-t', `=${UI_SESSION}:`, '@ap-binary']) : null;
+	if (opts.restartUi || runningBuild !== buildStamp) {
 		// Only our own UI server; AI sessions live on the other socket and survive.
 		await ui.run(['kill-server']);
 		const built = await buildUiLayout(ui, {
@@ -74,6 +91,7 @@ export async function launch(opts: LaunchOptions): Promise<number> {
 			await ui.run(['kill-server']);
 			fail(`could not build the layout: ${built}`);
 		}
+		await ui.run(['set', '-t', `=${UI_SESSION}:`, '@ap-binary', buildStamp]);
 	}
 	return execInteractive(ui.argv(['attach-session', '-t', `=${UI_SESSION}`]), {env: tmuxEnv()});
 }

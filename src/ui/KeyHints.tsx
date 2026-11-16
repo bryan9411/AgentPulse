@@ -23,6 +23,7 @@ export type HintContext = {
 	focus: 'list' | 'ai';
 	dialog: Dialog['kind'] | null;
 	row: 'project' | 'session' | null;
+	isDead?: boolean;
 	editingFilter?: boolean;
 	filtered?: boolean;
 	// The merge dialog only reports (refused, or done): nothing left to confirm.
@@ -31,7 +32,7 @@ export type HintContext = {
 
 // Every list variant has the same number of lines so the list does not
 // jump as the cursor moves between group and session rows.
-export function listHints({focus, dialog, row, editingFilter, filtered, mergeSettled}: HintContext, lang: Lang = DEFAULT_LANG): string[] {
+export function listHints({focus, dialog, row, isDead, editingFilter, filtered, mergeSettled}: HintContext, lang: Lang = DEFAULT_LANG): string[] {
 	const h = strings(lang).hints;
 	if (dialog === 'add-project') return h.addProject;
 	if (dialog === 'remove-project') return h.removeProject;
@@ -43,5 +44,6 @@ export function listHints({focus, dialog, row, editingFilter, filtered, mergeSet
 	if (focus === 'ai') return h.ai;
 	if (editingFilter) return h.editingFilter;
 	const filter = filtered ? h.filterOn : h.filterOff;
-	return [...(row === 'session' ? h.session : h.project), filter, ...h.tail];
+	const base = row === 'session' ? (isDead ? h.sessionDead : h.session) : h.project;
+	return [...base, filter, ...h.tail];
 }

@@ -289,6 +289,11 @@ const CONTEXT_WINDOWS: Record<string, number> = {
 	'claude-haiku-4-5': 200_000,
 };
 
+export function restartCommand(fs: HostFs, {cwd, sessionId}: {cwd: string; sessionId: string | null}): string[] {
+	if (!sessionId) return ['claude'];
+	return findClaudeLog(fs, cwd, sessionId) ? ['claude', '--resume', sessionId] : ['claude', '--session-id', sessionId];
+}
+
 export const claude: AgentAdapter = {
 	id: 'claude',
 	displayName: 'Claude Code',
@@ -296,6 +301,7 @@ export const claude: AgentAdapter = {
 	binary: 'claude',
 	pinsSessionId: true,
 	launchCommand: ({sessionId}) => (sessionId ? ['claude', '--session-id', sessionId] : ['claude']),
+	restartCommand,
 	matchProcess: line => commandHasProgram(line, ['claude']),
 	classify,
 	isSuspended,

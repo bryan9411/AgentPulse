@@ -89,10 +89,12 @@ export function Sidebar({state, columns, rows}: Props) {
 	const glyphs = GLYPHS[state.config.glyphs];
 	const rowsData = visibleRows(state);
 	const index = selectedIndex(state, rowsData);
+	const selected = rowsData[index];
 	const hints = listHints({
 		focus: state.focus,
 		dialog: state.dialog?.kind ?? null,
-		row: rowsData[index]?.kind ?? null,
+		row: selected?.kind ?? null,
+		isDead: selected?.kind === 'session' && selected.session.dead,
 		editingFilter: state.filter.editing,
 		filtered: filterActive(state),
 		mergeSettled: state.dialog?.kind === 'merge' && mergeSettled(state.dialog),

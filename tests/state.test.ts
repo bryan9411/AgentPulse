@@ -162,17 +162,21 @@ describe('state', () => {
 	test('remove project dialog only opens on a project row', () => {
 		const s = withSessions(A.initialState(config));
 		const onProject = A.openRemoveProject(s);
-		expect(onProject.dialog).toMatchObject({kind: 'remove-project', project: {name: 'p1'}, sessionCount: 2});
-		expect(A.openRemoveProject(A.moveSelection(s, 1))).toBe(A.moveSelection(s, 1));
+		expect(onProject.dialog).toMatchObject({kind: 'remove-project', project: {name: 'alpha'}, sessionCount: 2});
+		const onSession = A.moveSelection(s, 1);
+		expect(A.openRemoveProject(onSession)).toBe(onSession);
 	});
 
 	test('key hints follow focus, row kind and dialog', () => {
 		expect(listHints({focus: 'ai', dialog: null, row: 'session'})).toEqual(['ctrl+q back']);
 		expect(listHints({focus: 'list', dialog: null, row: 'session'}).join(' ')).toContain('enter type');
+		expect(listHints({focus: 'list', dialog: null, row: 'session', isDead: true}).join(' ')).toContain('enter restart');
+		expect(listHints({focus: 'list', dialog: null, row: 'session', isDead: true}, 'zh-TW').join(' ')).toContain('enter 重新啟動');
 		expect(listHints({focus: 'list', dialog: null, row: 'project'}).join(' ')).toContain('fold');
 		for (const filtered of [false, true]) {
 			for (const lang of ['en', 'zh-TW'] as const) {
 				expect(listHints({focus: 'list', dialog: null, row: 'session', filtered}, lang)).toHaveLength(7);
+				expect(listHints({focus: 'list', dialog: null, row: 'session', isDead: true, filtered}, lang)).toHaveLength(7);
 				expect(listHints({focus: 'list', dialog: null, row: 'project', filtered}, lang)).toHaveLength(7);
 			}
 		}
@@ -242,6 +246,18 @@ describe('worktree, merge and open dialogs', () => {
 		const wt = {...session('w1', '/w/alpha', 'feat/x'), cwd: '/w/alpha.worktrees/feat/x', worktree: true, base: 'main'};
 		return A.selectSession(A.setSessions(A.initialState(config), [...SESSIONS, wt]), 'w1');
 	};
+
+	test('openNewSession copies cwd, branch and base from a session row', () => {
+		const s = onWorktree();
+		const opened = A.openNewSession(s, options);
+		expect(opened.dialog).toMatchObject({
+			kind: 'new-session',
+			project: '/w/alpha',
+			cwd: '/w/alpha.worktrees/feat/x',
+			branch: 'feat/x',
+			base: 'main',
+		});
+	});
 
 	test('w opens for the project under the cursor, from a group or a session row', () => {
 		const onSession = A.openWorktree(A.moveSelection(withSessions(A.initialState(config)), 4), options);

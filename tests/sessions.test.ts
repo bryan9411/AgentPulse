@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {agentsTmuxConf} from '../src/bootstrap/tmuxConf.ts';
 import {exec} from '../src/infra/exec.ts';
 import {createTmux} from '../src/infra/tmux.ts';
-import {closeSession, createSession, listSessions, parseSessionLine, reloadSessionConf} from '../src/services/sessions.ts';
+import {closeSession, createSession, listSessions, parseSessionLine, reloadSessionConf, respawnSession} from '../src/services/sessions.ts';
 
 // A private tmux socket and a throwaway repository; never the user's server.
 const base = realpathSync(mkdtempSync(join(tmpdir(), 'ap-sess-')));
@@ -74,6 +74,20 @@ describe('sessions', () => {
 		expect(screen).toContain('AI 已結束（結束碼 4）');
 		await closeSession(tmux, before.id);
 		await reloadSessionConf(tmux, conf);
+	});
+
+	test('respawnSession reactivates a dead pane', async () => {
+		const created = await createSession(tmux, {...base_opts, command: ['sh', '-c', 'exit 0']});
+		if (!created.ok) throw new Error(created.error.key);
+		await Bun.sleep(200);
+		const [deadRecord] = (await listSessions(tmux)) ?? [];
+		expect(deadRecord?.dead).toBe(true);
+		const respawned = await respawnSession(tmux, {id: created.id, agent: 'claude', cwd: repo}, ['sh', '-c', 'sleep 30']);
+		expect(respawned.ok).toBe(true);
+		await Bun.sleep(200);
+		const [aliveRecord] = (await listSessions(tmux)) ?? [];
+		expect(aliveRecord?.dead).toBe(false);
+		await closeSession(tmux, created.id);
 	});
 
 	test('sessions without our metadata are ignored', async () => {

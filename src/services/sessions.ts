@@ -1,5 +1,6 @@
 import {AGENTS, getAgent} from '../agents/index.ts';
 import {resolveBin} from '../infra/exec.ts';
+import {hostFs} from '../infra/fsx.ts';
 import {currentBranch} from '../infra/git.ts';
 import {platform} from '../infra/platform/index.ts';
 import type {Tmux} from '../infra/tmux.ts';
@@ -165,6 +166,29 @@ export async function createSession(tmux: Tmux, opts: CreateOptions): Promise<Cr
 	for (const [name, value] of metaOptions(meta)) args.push(';', 'set', '-t', `=${id}:`, name, value);
 	const result = await tmux.run(args);
 	return result.ok ? {ok: true, id} : {ok: false, error: msg('startFailed', result.message)};
+}
+
+export async function respawnSession(
+	tmux: Tmux,
+	session: {id: string; agent: string; cwd: string; agentSession?: string},
+	commandOverride?: string[],
+): Promise<CreateResult> {
+	const adapter = getAgent(session.agent);
+	if (!adapter) return {ok: false, error: msg('unknownAgent', session.agent)};
+	let command = commandOverride;
+	if (!command) {
+		const bin = resolveBin(adapter.binary, platform.binDirs);
+		if (!bin) return {ok: false, error: msg('binaryMissing', adapter.binary)};
+		const ctx = {cwd: session.cwd, sessionId: session.agentSession || null};
+		const [, ...args] = adapter.restartCommand ? adapter.restartCommand(hostFs(), ctx) : adapter.launchCommand(ctx);
+		command = [bin, ...args];
+	}
+	const result = await tmux.run(['respawn-pane', '-k', '-c', session.cwd, '-t', `=${session.id}:`, ...command]);
+	return result.ok ? {ok: true, id: session.id} : {ok: false, error: msg('startFailed', result.message)};
+}
+
+export async function isPaneDead(tmux: Tmux, id: string): Promise<boolean> {
+	return (await tmux.out(['display', '-p', '-t', `=${id}:`, '#{pane_dead}'])) === '1';
 }
 
 // The visible screen as plain text, for the adapter's classify (SPEC 5.3).

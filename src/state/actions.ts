@@ -139,8 +139,11 @@ export function openNewSession(state: AppState, options: AgentOption[]): AppStat
 	const row = selectedRow(state);
 	if (!row) return state;
 	const project = row.kind === 'project' ? row.project.path : row.session.project;
+	const cwd = row.kind === 'session' ? row.session.cwd : row.project.path;
+	const branch = row.kind === 'session' ? row.session.branch : '';
+	const base = row.kind === 'session' && row.session.worktree && row.session.base ? row.session.base : undefined;
 	const index = Math.max(0, options.findIndex(o => o.installed));
-	return {...state, dialog: {kind: 'new-session', project, options, index, error: null, busy: false}};
+	return {...state, dialog: {kind: 'new-session', project, cwd, branch, base, options, index, error: null, busy: false}};
 }
 
 export function moveDialogChoice(state: AppState, delta: number): AppState {

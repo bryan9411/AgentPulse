@@ -125,6 +125,14 @@ describe('creating a worktree', () => {
 		mkdirSync(worktreePath(repo, 'reuse-me'), {recursive: true});
 		expect(await createWorktree(repo, 'reuse-me')).toMatchObject({ok: true});
 	});
+
+	test('reuses an existing worktree folder on that branch', async () => {
+		const repo = await newRepo();
+		const made = await createWorktree(repo, 'feat/reuse');
+		expect(made.ok).toBe(true);
+		const reused = await createWorktree(repo, 'feat/reuse');
+		expect(reused).toEqual(made);
+	});
 });
 
 describe('merge checks', () => {

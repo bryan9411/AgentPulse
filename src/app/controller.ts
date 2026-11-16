@@ -25,7 +25,7 @@ import {
 	windowTooSmall,
 } from '../state/selectors.ts';
 import type {Store} from '../state/store.ts';
-import type {AppState, MergeDialog, SessionSummary, WorktreeDialog} from '../state/types.ts';
+import type {AppState, MergeDialog, NewSessionDialog, SessionSummary, WorktreeDialog} from '../state/types.ts';
 import {helpLines} from '../ui/helpLines.ts';
 import {GLYPHS} from '../ui/theme.ts';
 import {
@@ -57,8 +57,10 @@ import {
 	captureScreen,
 	closeSession,
 	createSession,
+	isPaneDead,
 	listSessions,
 	reloadSessionConf,
+	respawnSession,
 	sessionExists,
 	type CreateResult,
 } from '../services/sessions.ts';
@@ -264,7 +266,9 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 			const pid = pids.get(session.id);
 			if (pid && resumeAllowed(resumeSent, session.id, now)) {
 				const how = continueProcessGroup(pid);
-				if (how === 'failed') logError(`resume: SIGCONT to ${session.id} (pid ${pid}) failed`);
+				if (how === 'failed' && !(await isPaneDead(agents, session.id))) {
+					logError(`resume: SIGCONT to ${session.id} (pid ${pid}) failed`);
+				}
 			}
 		}
 		return nextStatus(prev, {
@@ -516,17 +520,55 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		}
 	};
 
-	const giveFocus = async (zoom: boolean) => {
-		const session = selectedSession(store.get());
-		if (!panes || !session) return;
-		await syncAi();
-		if (shown !== session.id) {
+	const focusAiPane = async (sessionId: string, zoom: boolean) => {
+		await syncAi(true);
+		if (shown !== sessionId) {
 			store.set(s => A.setNotice(s, msg('cannotShow')));
 			return;
 		}
 		store.set(s => A.setNotice(s, null));
-		const ok = zoom ? await zoomAi(ui, panes) : await focusAi(ui, panes);
+		const ok = zoom ? await zoomAi(ui, panes!) : await focusAi(ui, panes!);
 		if (!ok) logError(`focus: select-pane failed (zoom=${zoom})`);
+		await refreshLayout(true);
+	};
+
+	const restartDeadSession = async (session: SessionSummary, zoom = false): Promise<boolean> => {
+		const result = await respawnSession(agents, session);
+		if (!result.ok) {
+			logError(`restart session ${session.id}: ${messageText('en', result.error)}`);
+			store.set(s => A.setFlash(s, result.error));
+			return false;
+		}
+		resumeSent.delete(session.id);
+		screens.delete(session.id);
+		store.set(s => A.selectSession(s, session.id));
+		await refreshSessions();
+		const updated = store.get().sessions.find(s => s.id === session.id);
+		if (updated?.dead) {
+			const error = msg('startFailed', `exit ${updated.exitStatus ?? '?'}`);
+			logError(`restart session ${session.id}: ${messageText('en', error)}`);
+			store.set(s => A.setFlash(s, error));
+			return false;
+		}
+		if (panes) await focusAiPane(session.id, zoom);
+		void refreshStatuses();
+		return true;
+	};
+
+	const giveFocus = async (zoom: boolean) => {
+		if (!panes) return;
+		await refreshSessions();
+		const session = selectedSession(store.get());
+		if (!session) return;
+		if (session.dead) {
+			await restartDeadSession(session, zoom);
+			return;
+		}
+		const pid = pids.get(session.id);
+		if (pid && (await platform.isProcessStopped(pid))) {
+			continueProcessGroup(pid);
+		}
+		await focusAiPane(session.id, zoom);
 	};
 
 	// Sized to the AI pane so the first frame is not drawn for another size.
@@ -548,8 +590,24 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		await giveFocus(false);
 	};
 
-	const submitNewSession = async (project: string, agent: string) => {
-		const result = await startSession({agent, project, cwd: project});
+	const handleExistingSession = async (project: string, branch: string, agent: string): Promise<'none' | 'blocked' | 'restarted'> => {
+		await refreshSessions();
+		const existing = store.get().sessions.find(s => s.project === project && s.branch === branch && s.agent === agent);
+		if (!existing) return 'none';
+		if (!existing.dead) {
+			store.set(s => A.setDialogError(s, msg('agentBranchExists', agent, branch)));
+			return 'blocked';
+		}
+		store.set(A.closeDialog);
+		await restartDeadSession(existing);
+		return 'restarted';
+	};
+
+	const submitNewSession = async (dialog: NewSessionDialog, agent: string) => {
+		const cwd = dialog.cwd ?? dialog.project;
+		const branch = (await currentBranch(cwd)) ?? dialog.branch ?? 'HEAD';
+		if ((await handleExistingSession(dialog.project, branch, agent)) !== 'none') return;
+		const result = await startSession({agent, project: dialog.project, cwd, base: dialog.base});
 		if (!result.ok) {
 			logError(`new session: ${messageText('en', result.error)}`);
 			store.set(s => A.setDialogError(s, result.error));
@@ -586,6 +644,8 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 	const flash = (message: Message) => store.set(s => A.setFlash(s, message));
 
 	const submitWorktree = async (dialog: WorktreeDialog, agent: string) => {
+		const branch = dialog.value.trim();
+		if (branch && (await handleExistingSession(dialog.project, branch, agent)) !== 'none') return;
 		const made = await createWorktree(dialog.project, dialog.value);
 		if (!made.ok) {
 			store.set(s => A.setDialogError(s, made.error));
@@ -712,7 +772,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 			try {
 				if (dialog.kind === 'add-project') await submitAddProject(dialog.value);
 				else if (dialog.kind === 'remove-project') await submitRemoveProject(dialog.project.path);
-				else if (dialog.kind === 'new-session') await submitNewSession(dialog.project, agent);
+				else if (dialog.kind === 'new-session') await submitNewSession(dialog, agent);
 				else if (dialog.kind === 'worktree') await submitWorktree(dialog, agent);
 				else if (dialog.kind === 'merge') await submitMerge(dialog);
 				else if (dialog.kind === 'open-url') {
@@ -730,6 +790,14 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		},
 		openNewSession() {
 			store.set(s => A.openNewSession(s, agentChoices()));
+			const row = selectedRow(store.get());
+			if (row?.kind === 'project') {
+				void currentBranch(row.project.path).then(branch => {
+					if (branch) {
+						store.set(s => (s.dialog?.kind === 'new-session' && s.dialog.project === row.project.path && !s.dialog.branch ? {...s, dialog: {...s.dialog, branch}} : s));
+					}
+				});
+			}
 		},
 		openWorktree() {
 			const project = selectedProjectPath(store.get());

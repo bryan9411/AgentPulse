@@ -175,6 +175,12 @@ describe('claude data', () => {
 	test('launch pins the conversation id', () => {
 		expect(claude.launchCommand({cwd: '/w', sessionId: id})).toEqual(['claude', '--session-id', id]);
 	});
+
+	test('restartCommand resumes when a conversation log exists and falls back to --session-id otherwise', () => {
+		expect(claude.restartCommand?.(fakeFs({[log]: user}), {cwd: '/w/shop', sessionId: id})).toEqual(['claude', '--resume', id]);
+		expect(claude.restartCommand?.(fakeFs({}), {cwd: '/w/shop', sessionId: id})).toEqual(['claude', '--session-id', id]);
+		expect(claude.restartCommand?.(fakeFs({}), {cwd: '/w/shop', sessionId: null})).toEqual(['claude']);
+	});
 });
 
 describe('agy data', () => {

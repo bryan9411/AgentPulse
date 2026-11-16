@@ -44,10 +44,14 @@ export async function checkCreate(project: string, input: string): Promise<NewWo
 	if (!base) return refuse('mainNoBranch');
 	if (!(await headCommit(project))) return refuse('noCommits');
 	if (!(await validBranchName(project, branch))) return refuse('branchInvalid');
-	if (await branchExists(project, branch)) return refuse('branchExists', branch);
 	const path = worktreePath(project, branch);
 	// check-ref-format already rejects "..", this only guards the join.
 	if (!path.startsWith(`${worktreeRoot(project)}/`)) return refuse('branchInvalid');
+	// If the folder already exists as an active worktree on this branch, we can reuse it.
+	if (isDirectory(path) && (await currentBranch(path)) === branch) {
+		return {ok: true, branch, path, base};
+	}
+	if (await branchExists(project, branch)) return refuse('branchExists', branch);
 	if (!missingOrEmptyDir(path)) return refuse('folderExists', path);
 	return {ok: true, branch, path, base};
 }
@@ -55,6 +59,9 @@ export async function checkCreate(project: string, input: string): Promise<NewWo
 export async function createWorktree(project: string, input: string): Promise<NewWorktree | Refusal> {
 	const check = await checkCreate(project, input);
 	if (!check.ok) return check;
+	if (isDirectory(check.path) && (await currentBranch(check.path)) === check.branch) {
+		return check;
+	}
 	const added = await worktreeAdd(project, check.branch, check.path, check.base);
 	return added.ok ? check : refuse('worktreeFailed', added.detail);
 }

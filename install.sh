@@ -113,19 +113,9 @@ say "  已安裝到：$target"
 
 # A running UI server keeps the old program in memory until it is rebuilt.
 if tmux -L agentpulse-ui has-session 2>/dev/null; then
-	step "AgentPulse 正在執行中"
-	say "  要讓新版本生效，需要重新整理畫面：會關閉目前的 AgentPulse 視窗，"
-	say "  背景執行中的 AI 和對話都不受影響，重新開啟 App 就會接回來。"
-	printf '  現在重新整理嗎？輸入 y 後按 enter（直接按 enter 則略過）：'
-	answer=
-	read -r answer </dev/tty || true
-	if [ "$answer" = y ] || [ "$answer" = Y ]; then
-		tmux -L agentpulse-ui kill-server 2>/dev/null || true
-		say "  已重新整理，請重新開啟 AgentPulse。"
-	else
-		say "  已略過。之後在終端機執行這行即可重新整理："
-		say "  \"$target/Contents/Resources/agentpulse\" --restart-ui"
-	fi
+	step "重新整理使用中的介面"
+	tmux -L agentpulse-ui kill-server 2>/dev/null || true
+	say "  已關閉舊版介面視窗以載入新版本（背景執行中的 AI 與對話不受影響）。"
 fi
 
 step "完成"

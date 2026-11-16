@@ -87,6 +87,11 @@ export const darwin: Platform = {
 		const result = await exec(['/bin/ps', '-axo', 'pid=,ppid=,command='], {timeoutMs: 5000});
 		return result.ok ? parsePs(result.stdout) : null;
 	},
+	async isProcessStopped(pid) {
+		if (!Number.isInteger(pid) || pid <= 1) return false;
+		const result = await exec(['/bin/ps', '-o', 'state=', '-p', String(pid)], {timeoutMs: 2000});
+		return result.ok && result.stdout.trim().startsWith('T');
+	},
 	async openUrl(url) {
 		return (await exec(['/usr/bin/open', url], {timeoutMs: 5000})).ok;
 	},
