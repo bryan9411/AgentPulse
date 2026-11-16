@@ -6,7 +6,8 @@ import {execInteractive, mergePath} from '../infra/exec.ts';
 import {writeTextAtomic} from '../infra/fsx.ts';
 import {configureLog, logError} from '../infra/log.ts';
 import {platform} from '../infra/platform/index.ts';
-import {createTmux, shellQuote, tmuxBin, tmuxEnv, UI_SOCKET} from '../infra/tmux.ts';
+import {isCompiled, selfCommand} from '../infra/self.ts';
+import {createTmux, tmuxBin, tmuxEnv, UI_SOCKET} from '../infra/tmux.ts';
 import {buildUiLayout, uiAlive, UI_SESSION} from '../services/layout.ts';
 import {addProjectFromCwd} from '../services/projects.ts';
 import {messageText} from '../i18n/strings.ts';
@@ -21,10 +22,6 @@ function fail(message: string): never {
 	process.exit(1);
 }
 
-function isCompiled(): boolean {
-	return Bun.main.startsWith('/$bunfs') || !/\.(tsx?|jsx?)$/.test(Bun.main);
-}
-
 function currentBuildStamp(): string {
 	const compiled = isCompiled();
 	const target = compiled ? process.execPath : Bun.main;
@@ -34,12 +31,6 @@ function currentBuildStamp(): string {
 	} catch {
 		return compiled ? 'bin:unknown' : `src:${Bun.main}`;
 	}
-}
-
-export function selfCommand(role: string): string {
-	return isCompiled()
-		? `${shellQuote(process.execPath)} --role=${role}`
-		: `${shellQuote(process.execPath)} run ${shellQuote(Bun.main)} --role=${role}`;
 }
 
 export async function launch(opts: LaunchOptions): Promise<number> {

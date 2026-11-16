@@ -1,6 +1,6 @@
 import {describe, expect, test} from 'bun:test';
 import {messageText, msg, strings, type Lang, type Message} from '../src/i18n/strings.ts';
-import {diffCommand, lessPrompt} from '../src/services/diff.ts';
+import {diffPopupCommand, helpPopupCommand} from '../src/services/diff.ts';
 import type {MergeOutcome, MergePlan} from '../src/services/worktree.ts';
 import type {MergeDialog, OpenUrlDialog, SessionSummary, WorktreeDialog} from '../src/state/types.ts';
 import {conflictLines} from '../src/ui/conflictLines.ts';
@@ -194,17 +194,18 @@ describe('messages and the diff command', () => {
 		}
 	});
 
-	test('less prompt escapes its own syntax', () => {
-		expect(lessPrompt('q close · 50% done? yes: no.')).toBe('q close · 50\\% done\\? yes\\: no\\.');
-		for (const lang of LANGS) expect(lessPrompt(strings(lang).diff.prompt)).toBe(strings(lang).diff.prompt);
-	});
+	test('diff and help popup commands invoke self with escaped arguments', () => {
+		const diffCmd = diffPopupCommand("/w/it's here/商店", 'zh-TW', '商店 (feat/a)');
+		expect(diffCmd).toContain('--role=diff');
+		expect(diffCmd).toContain('--cwd');
+		expect(diffCmd).toContain('商店');
+		expect(diffCmd).toContain('--lang');
+		expect(diffCmd).toContain('zh-TW');
+		expect(diffCmd).toContain('--title');
 
-	test('the popup command diffs against HEAD in the session folder and pages it', () => {
-		const command = diffCommand("/w/it's here/商店", strings('en').diff, '/opt/homebrew/bin/git');
-		expect(command.startsWith('sh -c ')).toBe(true);
-		expect(command).toContain('diff --color=always HEAD');
-		expect(command).toContain('ls-files --others --exclude-standard');
-		expect(command).toContain('less -R -c');
-		expect(command).toContain('商店');
+		const helpCmd = helpPopupCommand('en');
+		expect(helpCmd).toContain('--role=help');
+		expect(helpCmd).toContain('--lang');
+		expect(helpCmd).toContain('en');
 	});
 });

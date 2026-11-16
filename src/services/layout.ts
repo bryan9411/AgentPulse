@@ -1,6 +1,6 @@
 import {HUD_ROWS} from '../config/layout.ts';
 import {writeToTty} from '../infra/fsx.ts';
-import {shellQuote, type Tmux} from '../infra/tmux.ts';
+import {parseTmuxVersion, shellQuote, versionAtLeast, type Tmux} from '../infra/tmux.ts';
 
 export const UI_SESSION = 'ui';
 
@@ -190,8 +190,24 @@ export async function redrawPlaceholder(ui: Tmux, agents: Tmux, panes: UiPanes, 
 // display-popup 會阻塞直到使用者關閉浮動視窗；逾時設長一點只影響等待，不會關掉 server
 const POPUP_MAX_MS = 60 * 60 * 1000;
 
+let cachedBorderlessPopup: boolean | undefined;
+
+async function supportsBorderlessPopup(ui: Tmux): Promise<boolean> {
+	if (cachedBorderlessPopup !== undefined) return cachedBorderlessPopup;
+	const raw = await ui.out(['-V']);
+	const ver = raw ? parseTmuxVersion(raw) : null;
+	cachedBorderlessPopup = ver ? versionAtLeast(ver, 3, 3) : false;
+	return cachedBorderlessPopup;
+}
+
+export function popupArgs(borderless: boolean, command: string): string[] {
+	// -B 無外框旗標自 tmux 3.3 起才支援，3.2 維持預設外框並一樣放大至滿版
+	return ['display-popup', '-E', ...(borderless ? ['-B'] : []), '-w', '100%', '-h', '100%', command];
+}
+
 export async function showPopup(ui: Tmux, command: string): Promise<boolean> {
-	return (await ui.run(['display-popup', '-E', '-w', '90%', '-h', '90%', command], {timeoutMs: POPUP_MAX_MS})).ok;
+	const borderless = await supportsBorderlessPopup(ui);
+	return (await ui.run(popupArgs(borderless, command), {timeoutMs: POPUP_MAX_MS})).ok;
 }
 
 export async function clearLabel(ui: Tmux, panes: UiPanes): Promise<void> {

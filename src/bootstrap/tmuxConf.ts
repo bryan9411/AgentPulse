@@ -20,6 +20,7 @@ set -as terminal-features ",*:RGB"
 set -as terminal-features ",*:extkeys"
 ${EXTENDED_KEYS_OVERRIDE}
 set -g mouse on
+set-environment -g COLORTERM truecolor
 `;
 
 export function uiTmuxConf(): string {
@@ -72,7 +73,6 @@ set -g detach-on-destroy off
 set -g window-size latest
 set -g allow-passthrough on
 set -s set-clipboard on
-set-environment -g COLORTERM truecolor
 set -s copy-command "pbcopy"
 # 拖曳結束時複製到 macOS 剪貼簿並保留反白選取，不跳回底部
 bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-no-clear "pbcopy"

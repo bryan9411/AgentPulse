@@ -1,6 +1,9 @@
+import React from 'react';
 import {describe, expect, test} from 'bun:test';
+import {renderToString} from 'ink';
 import {strings} from '../src/i18n/strings.ts';
 import {helpLines, keyLabel, type HelpInput} from '../src/ui/helpLines.ts';
+import {HelpPopup, buildHelpRows} from '../src/ui/HelpPopup.tsx';
 import {width} from '../src/ui/text.ts';
 import {GLYPHS} from '../src/ui/theme.ts';
 
@@ -63,5 +66,38 @@ describe('list hints', () => {
 		for (const lang of ['en', 'zh-TW'] as const) {
 			for (const line of strings(lang).hints.tail) expect(width(line)).toBeLessThanOrEqual(28);
 		}
+	});
+});
+
+describe('HelpPopup', () => {
+	test('renders structured sections, key badges, and dynamic paths', () => {
+		const rows = buildHelpRows(
+			{
+				lang: 'zh-TW',
+				glyphs: GLYPHS.unicode,
+				backKey: 'C-b',
+				configPath: '/custom/cfg/config.json',
+				logPath: '/custom/cfg/agentpulse.log',
+			},
+			84,
+		);
+		const flat = rows.map(r => r.spans.map(s => s.text).join('')).join('\n');
+		expect(flat).toContain('ctrl+b');
+		expect(flat).not.toContain('ctrl+q');
+		expect(flat).toContain('/custom/cfg/config.json');
+		expect(flat).toContain('/custom/cfg/agentpulse.log');
+		expect(rows.some(r => r.spans.some(s => Boolean(s.bg)))).toBe(true);
+
+		const rendered = renderToString(
+			React.createElement(HelpPopup, {
+				lang: 'en',
+				glyphs: GLYPHS.unicode,
+				backKey: 'C-q',
+				configPath: '/tmp/config.json',
+				logPath: '/tmp/agentpulse.log',
+				onClose: () => {},
+			}),
+		);
+		expect(rendered).toContain('AgentPulse keys');
 	});
 });

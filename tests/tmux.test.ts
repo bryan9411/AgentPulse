@@ -1,7 +1,7 @@
 import {describe, expect, test} from 'bun:test';
 import {agentsTmuxConf, uiTmuxConf} from '../src/bootstrap/tmuxConf.ts';
 import {escapeFormat, parseTmuxVersion, shellQuote, tmuxEnv, versionAtLeast} from '../src/infra/tmux.ts';
-import {fixSizesCommand} from '../src/services/layout.ts';
+import {fixSizesCommand, popupArgs} from '../src/services/layout.ts';
 import {COLORS} from '../src/ui/theme.ts';
 import {viewportStart} from '../src/ui/viewport.ts';
 
@@ -59,5 +59,12 @@ describe('viewport', () => {
 		expect(viewportStart(100, 99, 10)).toBe(90);
 		expect(viewportStart(100, -1, 10)).toBe(0);
 		expect(viewportStart(100, 5, 0)).toBe(0);
+	});
+});
+
+describe('popupArgs', () => {
+	test('uses fullscreen size and hides border on tmux 3.3+', () => {
+		expect(popupArgs(true, 'cmd')).toEqual(['display-popup', '-E', '-B', '-w', '100%', '-h', '100%', 'cmd']);
+		expect(popupArgs(false, 'cmd')).toEqual(['display-popup', '-E', '-w', '100%', '-h', '100%', 'cmd']);
 	});
 });
