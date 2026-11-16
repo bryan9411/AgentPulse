@@ -3,17 +3,44 @@ import {Box, Text} from 'ink';
 import {DEFAULT_LANG, strings, type Lang} from '../i18n/strings.ts';
 import type {Dialog} from '../state/types.ts';
 import {COLORS} from './theme.ts';
-import {padEnd} from './text.ts';
+import {truncate, width as cells} from './text.ts';
 
 type Props = {lines: string[]; width: number};
+
+const KEY_TOKEN_RE = /^(ctrl\+\S+|enter \/ n|enter|esc|↑↓|←→|\/|\?|[a-z])(?=$|\s)/;
+
+function HintLine({text, width}: {text: string; width: number}) {
+	const clipped = truncate(text, width);
+	const parts = clipped.split(' · ');
+	const pad = ' '.repeat(Math.max(0, width - cells(clipped)));
+	return (
+		<Text>
+			{parts.map((part, i) => {
+				const match = KEY_TOKEN_RE.exec(part);
+				const keyText = match?.[1] ?? '';
+				const rest = keyText ? part.slice(keyText.length) : part;
+				return (
+					<React.Fragment key={i}>
+						{i > 0 ? <Text color={COLORS.subtle}>{' · '}</Text> : null}
+						{keyText ? (
+							<Text color={COLORS.accent} bold>
+								{keyText}
+							</Text>
+						) : null}
+						{rest ? <Text color={COLORS.dim}>{rest}</Text> : null}
+					</React.Fragment>
+				);
+			})}
+			{pad}
+		</Text>
+	);
+}
 
 export function KeyHints({lines, width}: Props) {
 	return (
 		<Box flexDirection="column">
 			{lines.map((line, i) => (
-				<Text key={i} color={COLORS.dim}>
-					{padEnd(line, width)}
-				</Text>
+				<HintLine key={i} text={line} width={width} />
 			))}
 		</Box>
 	);

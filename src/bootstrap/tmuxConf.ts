@@ -39,9 +39,9 @@ set -g status-format[0] " AgentPulse"
 set -g window-style "bg=${c.bg},fg=${c.text}"
 set -g window-active-style "bg=${c.bg},fg=${c.text}"
 set -g pane-border-style "fg=${c.rule},bg=${c.bg}"
-set -g pane-active-border-style "fg=${c.dim},bg=${c.bg}"
+set -g pane-active-border-style "fg=${c.accent},bg=${c.bg}"
 set -g pane-border-status top
-set -g pane-border-format "#{?@ap-label, #{@ap-label} ,}"
+set -g pane-border-format "#{?@ap-label, #[fg=${c.accent}]#{@ap-label}#[fg=${c.rule}] ,}"
 set -g pane-border-lines single
 set -g pane-border-indicators off
 set -g message-style "bg=${c.selected},fg=${c.text}"

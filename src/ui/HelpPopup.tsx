@@ -27,7 +27,7 @@ export function buildHelpRows(input: Omit<HelpPopupProps, 'onClose'>, maxWidth: 
 	const blank: HelpRow = {spans: [{text: ' ', color: COLORS.text}]};
 	const heading = (title: string): HelpRow => ({
 		spans: [
-			{text: '▎ ', color: COLORS.warn, bold: true},
+			{text: '▎ ', color: COLORS.accent, bold: true},
 			{text: title, color: COLORS.text, bold: true},
 		],
 	});
@@ -63,7 +63,7 @@ export function buildHelpRows(input: Omit<HelpPopupProps, 'onClose'>, maxWidth: 
 		[g.running, COLORS.running, t.states.running],
 		[g.approval, COLORS.warn, t.states.approval],
 		[g.idle, COLORS.text, t.states.idle],
-		[g.done, COLORS.text, t.states.done],
+		[g.done, COLORS.done, t.states.done],
 		[g.error, COLORS.error, t.states.error],
 	];
 

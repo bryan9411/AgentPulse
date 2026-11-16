@@ -13,11 +13,13 @@ export function AddProjectDialog({dialog, width, lang}: Props) {
 	const status = dialog.busy ? t.busy : dialog.error ? messageText(lang, dialog.error) : '';
 	return (
 		<Box flexDirection="column" height={5}>
-			<Text color={COLORS.text}>{padEnd(t.title, width)}</Text>
+			<Text color={COLORS.accent} bold>
+				{padEnd(t.title, width)}
+			</Text>
 			<Text color={COLORS.dim}>{padEnd(t.label, width)}</Text>
 			<Text backgroundColor={COLORS.selected}>
 				<Text color={COLORS.text}>{field}</Text>
-				<Text color={COLORS.dim}>{padEnd('▏', Math.max(1, width - cells(field)))}</Text>
+				<Text color={COLORS.accent}>{padEnd('▏', Math.max(1, width - cells(field)))}</Text>
 			</Text>
 			<Text color={dialog.error ? COLORS.text : COLORS.dim}>
 				{dialog.error ? <Text color={COLORS.error}>{'! '}</Text> : null}

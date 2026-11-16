@@ -8,12 +8,14 @@ import {defaultAgentIndex} from '../src/state/actions.ts';
 import {diffPopupCommand, helpPopupCommand} from '../src/services/diff.ts';
 import type {CloseSessionDialog as CloseDialogType, NewSessionDialog as NewSessionDialogType, OpenUrlDialog, SessionSummary} from '../src/state/types.ts';
 import {GroupRow} from '../src/ui/GroupRow.tsx';
+import {KeyHints} from '../src/ui/KeyHints.tsx';
+import {SessionRow} from '../src/ui/SessionRow.tsx';
 import {CloseSessionDialog, CLOSE_SESSION_DIALOG_ROWS} from '../src/ui/dialogs/CloseSessionDialog.tsx';
 import {NewSessionDialog, newSessionDialogRows} from '../src/ui/dialogs/NewSessionDialog.tsx';
 import {openUrlLines} from '../src/ui/dialogs/openUrlLines.ts';
 import {fieldLine, lineWidth, marked, wrapped, type Line} from '../src/ui/lineParts.ts';
 import {width} from '../src/ui/text.ts';
-import {GLYPHS} from '../src/ui/theme.ts';
+import {agentColor, COLORS, GLYPHS, stateGlyph} from '../src/ui/theme.ts';
 
 const LANGS: readonly Lang[] = ['en', 'zh-TW'];
 const WIDTH = 28;
@@ -77,6 +79,45 @@ describe('new-session and group row rendering', () => {
 		);
 		expect(long.trimEnd().endsWith('1')).toBe(true);
 		expect(width(long)).toBe(WIDTH);
+	});
+
+	test('SessionRow and KeyHints keep exact width and expose provider/state semantic colors', () => {
+		expect(agentColor('claude')).toBe(COLORS.claude);
+		expect(agentColor('claude #2')).toBe(COLORS.claude);
+		expect(agentColor('codex')).toBe(COLORS.codex);
+		expect(agentColor('agy')).toBe(COLORS.agy);
+		expect(agentColor('other')).toBe(COLORS.dim);
+		expect(stateGlyph('done', GLYPHS.unicode).color).toBe(COLORS.done);
+
+		for (const selected of [false, true]) {
+			for (const glyphs of [GLYPHS.unicode, GLYPHS.ascii]) {
+				const rendered = renderToString(
+					React.createElement(SessionRow, {
+						session,
+						branch: 'feat/購物車',
+						label: 'claude',
+						state: 'done',
+						hidden: false,
+						selected,
+						width: WIDTH,
+						glyphs,
+					}),
+				);
+				expect(width(rendered)).toBe(WIDTH);
+				if (selected) expect(rendered.startsWith(glyphs.cursor)).toBe(true);
+				expect(rendered).toContain(glyphs.guide);
+			}
+		}
+
+		const hints = renderToString(
+			React.createElement(KeyHints, {
+				lines: ['↑↓ move · ←→ fold', 'enter / n new AI', 'type to filter'],
+				width: WIDTH,
+			}),
+		);
+		const renderedHints = hints.split('\n');
+		expect(renderedHints).toEqual(['↑↓ move · ←→ fold', 'enter / n new AI', 'type to filter']);
+		for (const lineText of renderedHints) expect(width(lineText)).toBeLessThanOrEqual(WIDTH);
 	});
 
 	test('NewSessionDialog shows detected branch, sign-in hint, and missing-AI guidance', () => {

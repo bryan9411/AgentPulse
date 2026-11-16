@@ -16,7 +16,7 @@ type Props = {
 
 export function GroupRow({name, branch, count, expanded, selected, width, glyphs}: Props) {
 	const countText = ` ${count}`;
-	const room = Math.max(0, width - 2 - cells(countText));
+	const room = Math.max(0, width - 3 - cells(countText));
 	let shownName = name;
 	let shownBranch = branch ? ` (${branch})` : '';
 	if (cells(shownName) + cells(shownBranch) > room) {
@@ -28,10 +28,13 @@ export function GroupRow({name, branch, count, expanded, selected, width, glyphs
 	const spacer = ' '.repeat(Math.max(0, room - cells(shownName) - cells(shownBranch)));
 	return (
 		<Text backgroundColor={selected ? COLORS.selected : undefined}>
-			<Text color={COLORS.dim}>{`${expanded ? glyphs.expanded : glyphs.collapsed} `}</Text>
-			<Text color={COLORS.text}>{shownName}</Text>
-			{shownBranch ? <Text color={COLORS.dim}>{shownBranch}</Text> : null}
-			<Text color={COLORS.dim}>{`${spacer}${countText}`}</Text>
+			<Text color={selected ? COLORS.accent : COLORS.dim}>{selected ? glyphs.cursor : ' '}</Text>
+			<Text color={expanded ? COLORS.project : COLORS.dim}>{`${expanded ? glyphs.expanded : glyphs.collapsed} `}</Text>
+			<Text color={COLORS.text} bold={selected || expanded}>
+				{shownName}
+			</Text>
+			{shownBranch ? <Text color={COLORS.branch}>{shownBranch}</Text> : null}
+			<Text color={count > 0 ? COLORS.dim : COLORS.subtle}>{`${spacer}${countText}`}</Text>
 		</Text>
 	);
 }

@@ -37,7 +37,7 @@ export function helpLines(input: HelpInput): string[] {
 		[g.running, COLORS.running, t.states.running],
 		[g.approval, COLORS.warn, t.states.approval],
 		[g.idle, COLORS.text, t.states.idle],
-		[g.done, COLORS.text, t.states.done],
+		[g.done, COLORS.done, t.states.done],
 		[g.error, COLORS.error, t.states.error],
 	];
 	return [

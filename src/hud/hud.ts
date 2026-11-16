@@ -2,8 +2,8 @@ import type {AgentState} from '../agents/types.ts';
 import type {ContextView} from '../services/context/usage.ts';
 import {HUD_ROWS} from '../config/layout.ts';
 import {DEFAULT_LANG, strings, type Lang} from '../i18n/strings.ts';
-import {COLORS, GLYPHS, stateGlyph, type Glyphs} from '../ui/theme.ts';
-import {padEnd, truncateStart, width as cells} from '../ui/text.ts';
+import {COLORS, GLYPHS, agentColor, stateGlyph, type Glyphs} from '../ui/theme.ts';
+import {padEnd, truncate, truncateStart, width as cells} from '../ui/text.ts';
 import {fitSegments, SEPARATOR, type Segment} from './fit.ts';
 
 // 資訊列第 2～3 行資料：null 表示已檢查但無資料（顯示 —）；details 未定義表示尚未讀取完成
@@ -41,7 +41,23 @@ export type HudInput = {
 	lang?: Lang;
 };
 
-type Part = {text: string; color: string};
+type Part = {text: string; color: string; bold?: boolean};
+
+function renderParts(parts: readonly Part[], size: number): string {
+	if (size <= 0) return '';
+	let out = '';
+	let used = 0;
+	for (const part of parts) {
+		if (used >= size) break;
+		const remaining = size - used;
+		const piece = cells(part.text) <= remaining ? part.text : truncate(part.text, remaining);
+		if (!piece) break;
+		out += `${part.bold ? BOLD : ''}${fg(part.color)}${piece}${part.bold ? NO_BOLD : ''}`;
+		used += cells(piece);
+		if (piece !== part.text) break;
+	}
+	return `${out}${' '.repeat(Math.max(0, size - used))}`;
+}
 
 function statusParts(se: HudSession, glyphs: Glyphs, lang: Lang): Part[] {
 	const t = strings(lang);
@@ -50,7 +66,7 @@ function statusParts(se: HudSession, glyphs: Glyphs, lang: Lang): Part[] {
 	const glyph = stateGlyph(se.state, glyphs);
 	const parts: Part[] = [
 		{text: glyph.glyph, color: glyph.color},
-		{text: ` ${t.state[se.state]}`, color: COLORS.dim},
+		{text: ` ${t.state[se.state]}`, color: se.state === 'idle' ? COLORS.dim : glyph.color},
 	];
 	if (se.stalled) parts.push({text: ` · ${t.hud.stalled}`, color: COLORS.warn});
 	return parts;
@@ -80,14 +96,29 @@ export function formatDuration(ms: number, lang: Lang = DEFAULT_LANG): string {
 export function environmentSegments(d: HudDetails | undefined, glyphs: Glyphs, lang: Lang = DEFAULT_LANG): Segment[] {
 	const t = strings(lang).hud;
 	const model = !d?.model ? `${t.model} ${UNKNOWN}` : d.effort ? `${d.model} [${d.effort}]` : d.model;
+	const modelSpans = !d?.model
+		? undefined
+		: d.effort
+			? [
+					{text: d.model, color: COLORS.model},
+					{text: ` [${d.effort}]`, color: COLORS.branch},
+				]
+			: undefined;
 	const mcp = !d || d.mcp === null ? `MCP ${UNKNOWN}` : d.mcp.length === 0 ? t.mcpNone : `MCP ${d.mcp.join(', ')}`;
+	const hasMcp = Boolean(d?.mcp && d.mcp.length > 0);
 	const skills = `${t.skills} ${d?.skills ?? UNKNOWN}`;
 	const rules = !d?.rules ? '' : d.rules.present ? `${d.rules.name} ${glyphs.done}` : t.noRules(d.rules.name);
+	const rulesSpans = d?.rules?.present
+		? [
+				{text: `${d.rules.name} `, color: COLORS.text},
+				{text: glyphs.done, color: COLORS.running},
+			]
+		: undefined;
 	return [
-		{text: model, rank: 1, color: d?.model ? COLORS.text : COLORS.dim, minWidth: 8},
-		{text: mcp, rank: 2, color: COLORS.dim, minWidth: 8},
-		{text: skills, rank: 4, color: COLORS.dim},
-		{text: rules, rank: 3, color: COLORS.dim},
+		{text: model, rank: 1, color: d?.model ? COLORS.model : COLORS.dim, minWidth: 8, spans: modelSpans},
+		{text: mcp, rank: 2, color: hasMcp ? COLORS.done : COLORS.dim, minWidth: 8},
+		{text: skills, rank: 4, color: d?.skills != null && d.skills > 0 ? COLORS.text : COLORS.dim},
+		{text: rules, rank: 3, color: COLORS.dim, spans: rulesSpans},
 	];
 }
 
@@ -98,18 +129,32 @@ export function progressSegments(se: HudSession, now: number, lang: Lang = DEFAU
 	const git = d?.git ?? null;
 	const branch = git?.branch ?? se.branch;
 	let diff = UNKNOWN;
-	if (git) diff = git.added === 0 && git.removed === 0 && git.untracked === 0 ? t.clean : `+${git.added} -${git.removed}`;
+	let diffColor: string = COLORS.dim;
+	let diffSpans: Segment['spans'];
+	if (git) {
+		if (git.added === 0 && git.removed === 0 && git.untracked === 0) {
+			diff = t.clean;
+			diffColor = COLORS.running;
+		} else {
+			diff = `+${git.added} -${git.removed}`;
+			diffSpans = [
+				{text: `+${git.added}`, color: COLORS.running},
+				{text: ' ', color: COLORS.dim},
+				{text: `-${git.removed}`, color: COLORS.error},
+			];
+		}
+	}
 	const untracked = git && git.untracked > 0 ? t.untracked(git.untracked) : '';
 	const up = d?.createdAt ? t.up(age(now - d.createdAt)) : '';
 	const output = d?.changedAt && !se.dead ? t.output(age(now - d.changedAt)) : '';
 	const ports = (d?.ports ?? []).map(p => `:${p}`).join(' ');
 	return [
-		{text: branch, rank: 1, color: COLORS.text, minWidth: 6},
-		{text: diff, rank: 2, color: COLORS.dim},
-		{text: untracked, rank: 6, color: COLORS.dim},
+		{text: branch, rank: 1, color: COLORS.branch, minWidth: 6},
+		{text: diff, rank: 2, color: diffColor, spans: diffSpans},
+		{text: untracked, rank: 6, color: COLORS.warn},
 		{text: up, rank: 5, color: COLORS.dim},
 		{text: output, rank: 4, color: COLORS.dim},
-		{text: ports, rank: 3, color: COLORS.dim},
+		{text: ports, rank: 3, color: COLORS.accent},
 	];
 }
 
@@ -134,7 +179,9 @@ export function contextLine(view: ContextView | null, size: number, glyphs: Glyp
 	const headWidth = cells(head);
 	if (headWidth >= size) return `${fg(COLORS.dim)}${padEnd(head, size)}`;
 	const warn = view?.percent != null && view.percent >= warnAt;
-	const headText = `${fg(COLORS.dim)}${label}${fg(warn ? COLORS.warn : COLORS.text)}${figure}`;
+	const fillColor = warn ? COLORS.warn : COLORS.done;
+	const figureColor = !view ? COLORS.dim : fillColor;
+	const headText = `${fg(COLORS.dim)}${label}${fg(figureColor)}${figure}`;
 
 	let detail = '';
 	if (view && view.system !== null && view.chat !== null) {
@@ -165,7 +212,7 @@ export function contextLine(view: ContextView | null, size: number, glyphs: Glyp
 	let used = headWidth;
 	if (bar > 0 && view?.percent != null) {
 		const full = Math.min(bar, Math.round((bar * view.percent) / 100));
-		out += ` ${fg(COLORS.text)}${glyphs.barUsed.repeat(full)}${fg(COLORS.rule)}${glyphs.barFree.repeat(bar - full)}`;
+		out += ` ${fg(fillColor)}${glyphs.barUsed.repeat(full)}${fg(COLORS.rule)}${glyphs.barFree.repeat(bar - full)}`;
 		used += 1 + bar;
 	}
 	if (showDetail) {
@@ -178,7 +225,13 @@ export function contextLine(view: ContextView | null, size: number, glyphs: Glyp
 export function renderSegments(segments: readonly Segment[], size: number): string {
 	const fitted = fitSegments(segments, size);
 	const used = cells(fitted.map(s => s.text).join(SEPARATOR));
-	const body = fitted.map(s => `${fg(s.color)}${s.text}`).join(`${fg(COLORS.dim)}${SEPARATOR}`);
+	const body = fitted
+		.map(s =>
+			s.spans
+				? s.spans.map(sp => `${sp.bold ? BOLD : ''}${fg(sp.color)}${sp.text}${sp.bold ? NO_BOLD : ''}`).join('')
+				: `${fg(s.color)}${s.text}`,
+		)
+		.join(`${fg(COLORS.subtle)}${SEPARATOR}`);
 	return `${body}${' '.repeat(Math.max(0, size - used))}`;
 }
 
@@ -194,14 +247,20 @@ export function hudLines(input: HudInput, size: number): string[] {
 	} else if (input.session && input.project) {
 		const se = input.session;
 		const branch = se.details?.git?.branch ?? se.branch;
-		const left = `${branch} · ${input.project.name} · ${se.agent}`;
+		const leftParts: Part[] = [
+			{text: branch, color: COLORS.branch},
+			{text: ' · ', color: COLORS.subtle},
+			{text: input.project.name, color: COLORS.project, bold: true},
+			{text: ' · ', color: COLORS.subtle},
+			{text: se.agent, color: agentColor(se.agent)},
+		];
 		const parts = statusParts(se, input.glyphs ?? GLYPHS.unicode, lang);
 		const rightWidth = cells(parts.map(p => p.text).join(''));
 		// 空間不夠時整個右側狀態拿掉，不硬截斷文字
 		const shown = rightWidth > 0 && inner > rightWidth;
 		const leftWidth = shown ? inner - rightWidth - 1 : inner;
 		const right = shown ? ` ${parts.map(p => `${fg(p.color)}${p.text}`).join('')}` : '';
-		lines.push(` ${fg(COLORS.text)}${padEnd(left, leftWidth)}${right}${RESET}`);
+		lines.push(` ${renderParts(leftParts, leftWidth)}${right}${RESET}`);
 		const glyphs = input.glyphs ?? GLYPHS.unicode;
 		lines.push(` ${renderSegments(environmentSegments(se.details, glyphs, lang), inner)}${RESET}`);
 		lines.push(` ${renderSegments(progressSegments(se, input.now ?? Date.now(), lang), inner)}${RESET}`);
@@ -213,7 +272,7 @@ export function hudLines(input: HudInput, size: number): string[] {
 		const nameCut = padEnd(name, inner).trimEnd();
 		const rest = Math.max(0, inner - cells(nameCut));
 		const pathText = rest > 3 ? ` · ${truncateStart(input.project.path, rest - 3)}` : '';
-		lines.push(` ${fg(COLORS.text)}${BOLD}${nameCut}${NO_BOLD}${fg(COLORS.dim)}${padEnd(pathText, rest)}${RESET}`);
+		lines.push(` ${fg(COLORS.project)}${BOLD}${nameCut}${NO_BOLD}${fg(COLORS.dim)}${padEnd(pathText, rest)}${RESET}`);
 		lines.push(` ${fg(COLORS.dim)}${padEnd(t.noSession, inner)}${RESET}`);
 	}
 	while (lines.length < HUD_ROWS) lines.push(blank);
@@ -248,9 +307,10 @@ export function topBarFormat(input: TopBarInput): string {
 		const tint = color === COLORS.text ? COLORS.dim : color;
 		parts.push(`#[fg=${tint}]${glyph} ${n}#[fg=${COLORS.dim}] ${t.state[state]}`);
 	}
-	const left = ` #[fg=${COLORS.text},bold]AgentPulse#[nobold,fg=${COLORS.dim}]  ${parts.join(' · ')}`;
+	const sep = `#[fg=${COLORS.subtle}] · #[fg=${COLORS.dim}]`;
+	const left = ` #[fg=${COLORS.accent},bold]AgentPulse#[nobold,fg=${COLORS.dim}]  ${parts.join(sep)}`;
 	const marks = (input.accounts ?? [])
 		.filter(a => a.signedIn !== null)
-		.map(a => `#[fg=${COLORS.dim}]${a.id} #[fg=${COLORS.text}]${a.signedIn ? glyphs.running : glyphs.idle}`);
+		.map(a => `#[fg=${a.signedIn ? agentColor(a.id) : COLORS.dim}]${a.id} #[fg=${a.signedIn ? COLORS.running : COLORS.subtle}]${a.signedIn ? glyphs.running : glyphs.idle}`);
 	return marks.length === 0 ? left : `${left}#[align=right]${marks.join('  ')} `;
 }

@@ -1,11 +1,13 @@
 import {truncate, width as cells} from '../ui/text.ts';
 
 // rank 數字越小越重要，寬度不足時保留越久；未設定 minWidth 表示要嘛完整顯示、要嘛整個拿掉
+export type SegmentSpan = {text: string; color: string; bold?: boolean};
 export type Segment = {
 	text: string;
 	rank: number;
 	color: string;
 	minWidth?: number;
+	spans?: readonly SegmentSpan[];
 };
 
 export const SEPARATOR = ' · ';
@@ -34,6 +36,6 @@ export function fitSegments(input: readonly Segment[], size: number): Segment[] 
 	}
 	return segments.filter(s => widths.has(s)).map(s => {
 		const w = widths.get(s) ?? 0;
-		return w < cells(s.text) ? {...s, text: cut(s.text, w)} : s;
+		return w < cells(s.text) ? {...s, text: cut(s.text, w), spans: undefined} : s;
 	});
 }

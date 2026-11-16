@@ -33,9 +33,15 @@ export function fieldLine(value: string, width: number): Line {
 
 export function choiceLine(label: string, right: string, selected: boolean, enabled: boolean, width: number): Line {
 	const rightWidth = cells(right);
-	const left = padEnd(`${selected ? '›' : ' '} ${label}`, right ? Math.max(0, width - rightWidth - 1) : width);
+	const marker = selected ? '› ' : '  ';
+	const body = padEnd(label, right ? Math.max(0, width - rightWidth - 1 - 2) : Math.max(0, width - 2));
 	const color = enabled ? COLORS.text : COLORS.dim;
-	return {selected, spans: right ? [{text: `${left} `, color}, {text: right, color}] : [{text: left, color}]};
+	const spans: Span[] = [
+		{text: marker, color: selected ? COLORS.accent : COLORS.dim},
+		{text: right ? `${body} ` : body, color},
+	];
+	if (right) spans.push({text: right, color: enabled ? COLORS.dim : COLORS.subtle});
+	return {selected, spans};
 }
 
 export function statusLines(state: {busy: boolean; error: Message | null}, busyText: string, lang: Lang, width: number): Line[] {

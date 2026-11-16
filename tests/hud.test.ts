@@ -148,10 +148,20 @@ describe('hud detail lines', () => {
 	const session = {branch: 'main', agent: 'claude', cwd: '/w/shop', dead: false, exitStatus: null, state: 'idle' as const, details};
 
 	test('lines 2 and 3 match SPEC 5.5', () => {
-		const lines = plain(hudLines({tooSmall: false, project, session, now}, 100));
+		const raw = hudLines({tooSmall: false, project, session, now}, 100);
+		const lines = plain(raw);
 		expect(lines[1]?.trimEnd()).toBe(' claude-opus-5-5 [medium] · MCP github, postgres · skills 4 · CLAUDE.md ✓');
 		expect(lines[2]?.trimEnd()).toBe(' fix/login-bug · +128 -34 · 2 untracked · up 42m · output 3s ago · :3000 :5173');
 		expect(lines[3]?.trimEnd()).toBe(` context 37% ${'━'.repeat(11)}${'─'.repeat(19)}  ≈ system 4 · chat 33 · free 63`);
+
+		const rgb = (hex: string) => `\x1b[38;2;${Number.parseInt(hex.slice(1, 3), 16)};${Number.parseInt(hex.slice(3, 5), 16)};${Number.parseInt(hex.slice(5, 7), 16)}m`;
+		expect(raw[0]).toContain(`${rgb(COLORS.branch)}fix/login-bug`);
+		expect(raw[0]).toContain(`${rgb(COLORS.project)}shop`);
+		expect(raw[0]).toContain(`${rgb(COLORS.claude)}claude`);
+		expect(raw[1]).toContain(`${rgb(COLORS.model)}claude-opus-5-5`);
+		expect(raw[2]).toContain(`${rgb(COLORS.running)}+128`);
+		expect(raw[2]).toContain(`${rgb(COLORS.error)}-34`);
+		expect(raw[2]).toContain(`${rgb(COLORS.accent)}:3000 :5173`);
 	});
 
 	test('unknown fields show — and a clean tree says so', () => {
