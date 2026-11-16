@@ -13,9 +13,9 @@ import {continueProcessGroup, onRefreshSignal} from '../infra/signal.ts';
 import type {Tmux} from '../infra/tmux.ts';
 import * as A from '../state/actions.ts';
 import {
+	activeWorktreeBranch,
 	agentLabel,
 	isViewing,
-	mergeSettled,
 	selectedProjectPath,
 	selectedRow,
 	selectedSession,
@@ -25,7 +25,7 @@ import {
 	windowTooSmall,
 } from '../state/selectors.ts';
 import type {Store} from '../state/store.ts';
-import type {AppState, MergeDialog, NewSessionDialog, SessionSummary, WorktreeDialog} from '../state/types.ts';
+import type {AppState, CloseSessionDialog, NewSessionDialog, SessionSummary, WorktreeDialog} from '../state/types.ts';
 import {GLYPHS} from '../ui/theme.ts';
 import {
 	clearLabel,
@@ -63,7 +63,7 @@ import {
 	sessionExists,
 	type CreateResult,
 } from '../services/sessions.ts';
-import {createWorktree, planMerge, runMerge, type MergeCheck, type MergeTarget} from '../services/worktree.ts';
+import {checkOpenWorktree, listWorktreeBranches, openWorktree, removeWorktreeFolder} from '../services/worktree.ts';
 import {enteredAlert, isStalled, nextStatus, type SessionStatus} from '../services/status/machine.ts';
 import {notificationText, resumeAllowed, shouldNotify, type NotifyLog} from '../services/status/notify.ts';
 
@@ -71,7 +71,6 @@ export type Controller = {
 	submitDialog(): Promise<void>;
 	openNewSession(): void;
 	openWorktree(): void;
-	openMerge(): void;
 	showDiff(): Promise<void>;
 	showHelp(): Promise<void>;
 	openWeb(): Promise<void>;
@@ -228,8 +227,8 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 			logError('sessions: listing failed; keeping the previous list');
 			return;
 		}
-		const sessions: SessionSummary[] = found.map(({id, project, cwd, branch, agent, dead, exitStatus, created, agentSession, worktree, base}) => ({
-			id, project, cwd, branch, agent, dead, exitStatus, created, agentSession, worktree, base,
+		const sessions: SessionSummary[] = found.map(({id, project, cwd, branch, agent, dead, exitStatus, created, agentSession, worktree}) => ({
+			id, project, cwd, branch, agent, dead, exitStatus, created, agentSession, worktree,
 		}));
 		pids.clear();
 		for (const record of found) if (!record.dead && record.pid) pids.set(record.id, record.pid);
@@ -562,11 +561,11 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 	};
 
 	// 依目前右側 AI 窗格大小啟動，避免第一幀就用錯誤寬度排版
-	const startSession = async (opts: {agent: string; project: string; cwd: string; base?: string}): Promise<CreateResult> => {
+	const startSession = async (opts: {agent: string; project: string; cwd: string; worktree?: boolean}): Promise<CreateResult> => {
 		const size = panes && (await readAiPane(ui, panes));
 		return createSession(agents, {
 			...opts,
-			worktree: opts.base !== undefined,
+			worktree: opts.worktree ?? false,
 			confPath: agentsConf,
 			width: size?.width ?? 120,
 			height: size?.height ?? 36,
@@ -596,7 +595,7 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		const cwd = dialog.cwd ?? dialog.project;
 		const branch = (await currentBranch(cwd)) ?? dialog.branch ?? 'HEAD';
 		if ((await handleExistingSession(dialog.project, branch, agent)) !== 'none') return;
-		const result = await startSession({agent, project: dialog.project, cwd, base: dialog.base});
+		const result = await startSession({agent, project: dialog.project, cwd, worktree: cwd !== dialog.project});
 		if (!result.ok) {
 			logError(`new session: ${messageText('en', result.error)}`);
 			store.set(s => A.setDialogError(s, result.error));
@@ -617,62 +616,63 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		if (shown === null) await refreshPlaceholder();
 	};
 
-	const submitCloseSession = async (id: string) => {
-		if (!(await closeAndForget(id))) {
+	const submitCloseSession = async (dialog: CloseSessionDialog) => {
+		const {session, canRemoveWorktree, index} = dialog;
+		if (!(await closeAndForget(session.id))) {
 			store.set(s => A.setDialogError(s, msg('cannotClose')));
 			return;
 		}
+		let keptDirty = false;
+		if (canRemoveWorktree && index === 1) {
+			const removed = await removeWorktreeFolder(session.project, session.cwd);
+			if (!removed.ok) {
+				keptDirty = true;
+				logError(`worktree remove ${session.cwd}: ${removed.detail}`);
+			}
+		}
 		await refreshSessions();
-		store.set(A.closeDialog);
+		store.set(s => (keptDirty ? A.setFlash(A.closeDialog(s), msg('worktreeKeptDirty')) : A.closeDialog(s)));
 		await afterClose();
+		void pollGit();
 	};
 
 	const flash = (message: Message) => store.set(s => A.setFlash(s, message));
 
-	const submitWorktree = async (dialog: WorktreeDialog, agent: string) => {
-		const branch = dialog.value.trim();
-		if (branch && (await handleExistingSession(dialog.project, branch, agent)) !== 'none') return;
-		const made = await createWorktree(dialog.project, dialog.value);
+	const submitWorktreeBranch = async (dialog: WorktreeDialog) => {
+		const choice = activeWorktreeBranch(dialog);
+		if (!choice) {
+			store.set(s => A.setDialogError(s, msg('branchEmpty')));
+			return;
+		}
+		const check = await checkOpenWorktree(dialog.project, choice.branch);
+		if (!check.ok) {
+			store.set(s => A.setDialogError(s, check.error));
+			return;
+		}
+		const mode = check.mode === 'reuse' ? 'worktree' : check.mode;
+		store.set(s => A.advanceWorktreeAgent(s, {branch: check.branch, mode}));
+	};
+
+	const submitWorktreeAgent = async (dialog: WorktreeDialog, agent: string) => {
+		const branch = dialog.selectedBranch?.branch ?? activeWorktreeBranch(dialog)?.branch ?? '';
+		if (!branch) {
+			store.set(s => A.setDialogError(s, msg('branchEmpty')));
+			return;
+		}
+		if ((await handleExistingSession(dialog.project, branch, agent)) !== 'none') return;
+		const made = await openWorktree(dialog.project, branch);
 		if (!made.ok) {
 			store.set(s => A.setDialogError(s, made.error));
 			return;
 		}
-		const result = await startSession({agent, project: dialog.project, cwd: made.path, base: made.base});
+		const result = await startSession({agent, project: dialog.project, cwd: made.path, worktree: true});
 		if (!result.ok) {
-			// AI 啟動失敗時不自動回滾刪除資料夾與分支，保留給使用者自行處理
+			// AI 啟動失敗時不自動回滾刪除資料夾，保留給使用者自行處理
 			logError(`worktree ${made.path}: ${messageText('en', result.error)}`);
 			store.set(s => A.setDialogError(s, msg('worktreeNoAi')));
 			return;
 		}
 		await enterSession(result.id);
-	};
-
-	const mergeTarget = (session: SessionSummary): MergeTarget => ({
-		project: session.project,
-		cwd: session.cwd,
-		base: session.base,
-		worktree: session.worktree,
-		running: sessionState(store.get(), session) === 'running',
-	});
-
-	const submitMerge = async (dialog: MergeDialog) => {
-		const id = dialog.session.id;
-		// 以最新清單重抓 session，避免開啟對話框期間 AI 突然開始執行
-		const target = mergeTarget(store.get().sessions.find(s => s.id === id) ?? dialog.session);
-		const outcome = await runMerge(target, dialog.value, {closeSession: () => closeAndForget(id)});
-		if (outcome.kind === 'blocked') {
-			// 狀態已過期，重算並更新確認對話框顯示的步驟與阻擋原因
-			const check = await planMerge(target);
-			store.set(s => A.setMergeCheck(s, id, check));
-			if (check.ok) store.set(s => A.setDialogError(s, outcome.error));
-			return;
-		}
-		logError(`merge ${target.cwd}: ${JSON.stringify(outcome)}`);
-		await refreshSessions();
-		if (outcome.kind === 'merged') store.set(s => A.setFlash(A.closeDialog(s), msg('merged', outcome.branch, outcome.base)));
-		else store.set(s => A.setMergeOutcome(s, id, outcome));
-		await afterClose();
-		void pollGit();
 	};
 
 	const openPort = async (port: number): Promise<boolean> => {
@@ -728,16 +728,8 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		async submitDialog() {
 			const dialog = store.get().dialog;
 			if (!dialog || dialog.busy) return;
-			if (dialog.kind === 'merge') {
-				if (mergeSettled(dialog)) store.set(A.closeDialog);
-				if (mergeSettled(dialog) || !dialog.plan) return;
-				if (dialog.plan.dirty > 0 && !dialog.value.trim()) {
-					store.set(s => A.setDialogError(s, msg('needMessage')));
-					return;
-				}
-			}
 			let agent = '';
-			if (dialog.kind === 'new-session' || dialog.kind === 'worktree') {
+			if (dialog.kind === 'new-session' || (dialog.kind === 'worktree' && dialog.step === 'agent')) {
 				const option = dialog.options[dialog.index];
 				if (!option) return;
 				if (!option.installed) {
@@ -752,13 +744,14 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 				if (dialog.kind === 'add-project') await submitAddProject(dialog.value);
 				else if (dialog.kind === 'remove-project') await submitRemoveProject(dialog.project.path);
 				else if (dialog.kind === 'new-session') await submitNewSession(dialog, agent);
-				else if (dialog.kind === 'worktree') await submitWorktree(dialog, agent);
-				else if (dialog.kind === 'merge') await submitMerge(dialog);
-				else if (dialog.kind === 'open-url') {
+				else if (dialog.kind === 'worktree') {
+					if (dialog.step === 'branch') await submitWorktreeBranch(dialog);
+					else await submitWorktreeAgent(dialog, agent);
+				} else if (dialog.kind === 'open-url') {
 					const port = dialog.ports[dialog.index];
 					if (port !== undefined && (await openPort(port))) store.set(A.closeDialog);
 					else store.set(s => A.setDialogError(s, msg('openFailed')));
-				} else if (dialog.kind === 'close-session') await submitCloseSession(dialog.session.id);
+				} else if (dialog.kind === 'close-session') await submitCloseSession(dialog);
 			} catch (error) {
 				logError(`dialog ${dialog.kind}: ${String(error)}`);
 				store.set(s => A.setDialogError(s, msg('failed')));
@@ -781,27 +774,11 @@ export function startController({store, ui, agents, configDir, pid}: Context): C
 		openWorktree() {
 			const project = selectedProjectPath(store.get());
 			if (!project) return;
-			// 先開啟對話框讓使用者立刻打字，來源分支背景查完再補顯示
+			// 先開啟對話框讓使用者直接輸入或等候既有分支列表載入完成
 			store.set(s => A.openWorktree(s, agentChoices()));
-			void currentBranch(project).then(base => {
-				if (base) store.set(s => A.setWorktreeBase(s, project, base));
-				else store.set(s => (s.dialog?.kind === 'worktree' && s.dialog.project === project ? A.setDialogError(s, msg('mainNoBranch')) : s));
+			void listWorktreeBranches(project).then(({base, branches}) => {
+				store.set(s => A.setWorktreeBranches(s, project, base, branches));
 			});
-		},
-		openMerge() {
-			const session = selectedSession(store.get());
-			if (!session) return;
-			if (!session.worktree) {
-				flash(msg('notWorktree'));
-				return;
-			}
-			store.set(A.openMerge);
-			void planMerge(mergeTarget(session))
-				.catch((error): MergeCheck => {
-					logError(`merge check: ${String(error)}`);
-					return {ok: false, error: msg('failed')};
-				})
-				.then(check => store.set(s => A.setMergeCheck(s, session.id, check)));
 		},
 		showDiff,
 		showHelp,

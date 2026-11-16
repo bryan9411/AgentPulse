@@ -3,7 +3,7 @@ import {MIN_WINDOW} from '../config/layout.ts';
 import {involvedBranches, type Conflict} from '../services/conflictRadar.ts';
 import {ALERT_STATES} from '../services/status/machine.ts';
 import {worktreePath, worktreeRoot} from '../services/worktree.ts';
-import type {AddProjectDialog, AppState, Dialog, MergeDialog, Project, Row, SessionSummary, WorktreeDialog} from './types.ts';
+import type {AddProjectDialog, AppState, Dialog, Project, Row, SessionSummary, WorktreeChoice, WorktreeDialog} from './types.ts';
 
 export const projectKey = (path: string) => `p:${path}`;
 export const sessionKey = (id: string) => `s:${id}`;
@@ -116,17 +116,33 @@ export function conflictBranchCount(conflicts: readonly Conflict[]): number {
 	return involvedBranches(conflicts);
 }
 
-// 只有有文字輸入欄位的對話框才攔截一般字元；merge 僅在需要輸入 commit 訊息時接收文字
-export function acceptsText(dialog: Dialog): dialog is AddProjectDialog | WorktreeDialog | MergeDialog {
-	if (dialog.kind === 'merge') return dialog.plan !== null && dialog.plan.dirty > 0 && dialog.outcome === null && dialog.blocked === null;
-	return dialog.kind === 'add-project' || dialog.kind === 'worktree';
+// 只有需要文字輸入的對話框階段才攔截一般字元（worktree 僅在選擇／輸入分支時收文字）
+export function acceptsText(dialog: Dialog): dialog is AddProjectDialog | WorktreeDialog {
+	if (dialog.kind === 'worktree') return dialog.step === 'branch';
+	return dialog.kind === 'add-project';
 }
 
-export function mergeSettled(dialog: MergeDialog): boolean {
-	return dialog.blocked !== null || dialog.outcome !== null;
+export function worktreeBranchChoices(dialog: WorktreeDialog): WorktreeChoice[] {
+	const typed = dialog.value.trim();
+	const needle = typed.toLowerCase();
+	const matched: WorktreeChoice[] = dialog.branches
+		.filter(b => !needle || b.branch.toLowerCase().includes(needle))
+		.map(b => ({branch: b.branch, mode: b.status}));
+	const exact = typed !== '' && dialog.branches.some(b => b.branch === typed);
+	if (typed && !exact) return [{branch: typed, mode: 'create'}, ...matched];
+	return matched;
 }
 
-// 尚未輸入名稱時先顯示父資料夾路徑，讓對話框行數保持固定不跳動
+export function activeWorktreeBranch(dialog: WorktreeDialog): WorktreeChoice | null {
+	if (dialog.selectedBranch) return dialog.selectedBranch;
+	const choices = worktreeBranchChoices(dialog);
+	if (choices.length === 0) return null;
+	const index = Math.min(Math.max(0, dialog.branchIndex), choices.length - 1);
+	return choices[index] ?? null;
+}
+
+// 尚未選出或輸入任何分支名稱時先顯示父資料夾路徑，讓對話框高度固定
 export function worktreeDialogPath(dialog: WorktreeDialog): string {
-	return dialog.value.trim() ? worktreePath(dialog.project, dialog.value) : `${worktreeRoot(dialog.project)}/`;
+	const chosen = activeWorktreeBranch(dialog)?.branch;
+	return chosen ? worktreePath(dialog.project, chosen) : `${worktreeRoot(dialog.project)}/`;
 }

@@ -76,8 +76,49 @@ export async function headCommit(dir: string): Promise<string | null> {
 	return result.ok ? result.stdout.trim() || null : null;
 }
 
-export function worktreeAdd(project: string, branch: string, path: string, base: string): Promise<GitResult> {
-	return outcome(git(project, ['worktree', 'add', '-b', branch, path, base], {timeoutMs: SLOW_MS}));
+export type WorktreeEntry = {
+	path: string;
+	branch: string | null;
+};
+
+// 解析 `git worktree list --porcelain -z`：各區塊以空欄位分隔，分支格式為 "branch refs/heads/<name>"
+export function parseWorktreeListZ(text: string): WorktreeEntry[] {
+	const entries: WorktreeEntry[] = [];
+	let currentPath: string | null = null;
+	let currentBranch: string | null = null;
+	const flush = () => {
+		if (currentPath !== null) entries.push({path: currentPath, branch: currentBranch});
+		currentPath = null;
+		currentBranch = null;
+	};
+	for (const field of text.split('\0')) {
+		if (field === '') {
+			flush();
+			continue;
+		}
+		if (field.startsWith('worktree ')) currentPath = field.slice('worktree '.length);
+		else if (field.startsWith('branch refs/heads/')) currentBranch = field.slice('branch refs/heads/'.length);
+	}
+	flush();
+	return entries;
+}
+
+export async function worktreeEntries(project: string): Promise<WorktreeEntry[]> {
+	const result = await git(project, ['worktree', 'list', '--porcelain', '-z']);
+	return result.ok ? parseWorktreeListZ(result.stdout) : [];
+}
+
+export async function localBranches(project: string): Promise<string[]> {
+	const result = await git(project, ['for-each-ref', '--format=%(refname:short)', 'refs/heads']);
+	return result.ok ? result.stdout.split('\n').map(b => b.trim()).filter(Boolean) : [];
+}
+
+export function worktreeAddNew(project: string, branch: string, path: string, startPoint: string): Promise<GitResult> {
+	return outcome(git(project, ['worktree', 'add', '-b', branch, path, startPoint], {timeoutMs: SLOW_MS}));
+}
+
+export function worktreeAddExisting(project: string, branch: string, path: string): Promise<GitResult> {
+	return outcome(git(project, ['worktree', 'add', path, branch], {timeoutMs: SLOW_MS}));
 }
 
 // 不使用強制選項：資料夾內若有未提交或未追蹤檔案讓 git 自行拒絕
@@ -85,9 +126,8 @@ export function worktreeRemove(project: string, path: string): Promise<GitResult
 	return outcome(git(project, ['worktree', 'remove', path], {timeoutMs: SLOW_MS}));
 }
 
-// 只用 -d 不用 -D：拒絕刪除尚未合併的分支
-export function deleteBranch(project: string, branch: string): Promise<GitResult> {
-	return outcome(git(project, ['branch', '-d', branch]));
+export function worktreePrune(project: string): Promise<GitResult> {
+	return outcome(git(project, ['worktree', 'prune'], {timeoutMs: SLOW_MS}));
 }
 
 export type StatusEntry = {
@@ -119,39 +159,8 @@ export async function statusEntries(dir: string): Promise<StatusEntry[] | null> 
 	return result.ok ? parseStatusZ(result.stdout) : null;
 }
 
-// 頂層被 git 忽略的項目（例如 .env、node_modules/），移除 worktree 時會一併被清掉
-export async function ignoredEntries(dir: string): Promise<string[] | null> {
-	const result = await git(dir, ['status', '--porcelain', '-z', '--ignored']);
-	return result.ok ? parseStatusZ(result.stdout).filter(e => e.code === '!!').map(e => e.path) : null;
-}
-
 // 加上 --no-renames：若偵測更名會連舊路徑一起算進來，可能誤報其他分支正在修改的檔案
 export async function committedFiles(dir: string, base: string): Promise<string[] | null> {
 	const result = await git(dir, ['diff', '--name-only', '--no-renames', '-z', `${base}...HEAD`]);
 	return result.ok ? zList(result.stdout) : null;
-}
-
-// 連同新檔案一起 commit，否則留著未追蹤檔案會讓後續移除 worktree 失敗
-export async function commitAll(dir: string, message: string): Promise<GitResult> {
-	const added = await outcome(git(dir, ['add', '-A'], {timeoutMs: SLOW_MS}));
-	if (!added.ok) return added;
-	return outcome(git(dir, ['commit', '-m', message], {timeoutMs: SLOW_MS}));
-}
-
-// 加上 --no-edit 直接套用預設合併訊息，不彈出編輯器
-export function mergeNoFf(project: string, branch: string): Promise<GitResult> {
-	return outcome(git(project, ['merge', '--no-ff', '--no-edit', branch], {timeoutMs: SLOW_MS}));
-}
-
-export async function mergeInProgress(project: string): Promise<boolean> {
-	return (await git(project, ['rev-parse', '--verify', '--quiet', 'MERGE_HEAD'])).ok;
-}
-
-export async function unmergedFiles(project: string): Promise<string[]> {
-	const result = await git(project, ['diff', '--name-only', '--diff-filter=U', '-z']);
-	return result.ok ? zList(result.stdout) : [];
-}
-
-export function mergeAbort(project: string): Promise<GitResult> {
-	return outcome(git(project, ['merge', '--abort'], {timeoutMs: SLOW_MS}));
 }

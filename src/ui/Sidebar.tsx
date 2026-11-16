@@ -2,13 +2,12 @@ import React from 'react';
 import {Box, Text} from 'ink';
 import {MIN_WINDOW} from '../config/layout.ts';
 import {messageText, strings, type Lang} from '../i18n/strings.ts';
-import {filterActive, mergeSettled, selectedConflicts, selectedIndex, visibleRows, windowTooSmall, worktreeDialogPath} from '../state/selectors.ts';
+import {filterActive, selectedConflicts, selectedIndex, visibleRows, windowTooSmall, worktreeDialogPath} from '../state/selectors.ts';
 import type {AppState, Dialog, Project} from '../state/types.ts';
 import {conflictLines} from './conflictLines.ts';
 import {AddProjectDialog} from './dialogs/AddProjectDialog.tsx';
-import {CloseSessionDialog, CLOSE_SESSION_DIALOG_ROWS} from './dialogs/CloseSessionDialog.tsx';
+import {CloseSessionDialog, closeSessionDialogRows} from './dialogs/CloseSessionDialog.tsx';
 import {RemoveProjectDialog, REMOVE_PROJECT_DIALOG_ROWS} from './dialogs/RemoveProjectDialog.tsx';
-import {mergeLines} from './dialogs/mergeLines.ts';
 import {NewSessionDialog, newSessionDialogRows} from './dialogs/NewSessionDialog.tsx';
 import {openUrlLines} from './dialogs/openUrlLines.ts';
 import {worktreeLines} from './dialogs/worktreeLines.ts';
@@ -28,7 +27,6 @@ const projectName = (projects: Project[], path: string) => projects.find(p => p.
 
 // M6 對話框高度會依內容變動，先轉成行資料以便計算高度；固定高度的對話框則直接回傳 null 由元件渲染
 function dialogLines(dialog: Dialog, projects: Project[], width: number, lang: Lang): Line[] | null {
-	if (dialog.kind === 'merge') return mergeLines(dialog, lang, width);
 	if (dialog.kind === 'open-url') return openUrlLines(dialog, lang, width);
 	if (dialog.kind !== 'worktree') return null;
 	return worktreeLines(dialog, {projectName: projectName(projects, dialog.project), path: worktreeDialogPath(dialog)}, lang, width);
@@ -40,7 +38,8 @@ function dialogRows(dialog: Dialog | null, lines: Line[] | null): number {
 	if (dialog.kind === 'add-project') return ADD_PROJECT_DIALOG_ROWS;
 	if (dialog.kind === 'remove-project') return REMOVE_PROJECT_DIALOG_ROWS;
 	if (dialog.kind === 'new-session') return newSessionDialogRows(dialog);
-	return CLOSE_SESSION_DIALOG_ROWS;
+	if (dialog.kind === 'close-session') return closeSessionDialogRows(dialog);
+	return 0;
 }
 
 function DialogView({dialog, projects, width, lang}: {dialog: Dialog; projects: Project[]; width: number; lang: Lang}) {
@@ -95,7 +94,8 @@ export function Sidebar({state, columns, rows}: Props) {
 		isDead: selected?.kind === 'session' && selected.session.dead,
 		editingFilter: state.filter.editing,
 		filtered: filterActive(state),
-		mergeSettled: state.dialog?.kind === 'merge' && mergeSettled(state.dialog),
+		worktreeStep: state.dialog?.kind === 'worktree' ? state.dialog.step : undefined,
+		canRemoveWorktree: state.dialog?.kind === 'close-session' ? state.dialog.canRemoveWorktree : undefined,
 	}, lang);
 	const lines = state.dialog ? dialogLines(state.dialog, state.projects, inner, lang) : null;
 	const conflicts = state.dialog ? [] : conflictLines(selectedConflicts(state), lang, inner);

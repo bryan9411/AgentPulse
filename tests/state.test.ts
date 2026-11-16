@@ -3,10 +3,10 @@ import {DEFAULT_CONFIG} from '../src/config/config.ts';
 import * as A from '../src/state/actions.ts';
 import {
 	acceptsText,
+	activeWorktreeBranch,
 	filterActive,
 	isBlinking,
 	isViewing,
-	mergeSettled,
 	projectKey,
 	selectedConflicts,
 	selectedRow,
@@ -18,6 +18,7 @@ import {
 	statusCounts,
 	visibleRows,
 	windowTooSmall,
+	worktreeBranchChoices,
 	worktreeDialogPath,
 } from '../src/state/selectors.ts';
 import type {SessionStatus} from '../src/services/status/machine.ts';
@@ -27,7 +28,7 @@ import type {AppState, SessionSummary} from '../src/state/types.ts';
 
 const config = {...DEFAULT_CONFIG, projects: ['/w/alpha', '/w/beta']};
 const session = (id: string, project: string, branch: string, agent = 'claude'): SessionSummary => ({
-	id, project, cwd: project, branch, agent, dead: false, exitStatus: null, created: 0, agentSession: '', worktree: false, base: '',
+	id, project, cwd: project, branch, agent, dead: false, exitStatus: null, created: 0, agentSession: '', worktree: false,
 });
 const SESSIONS = [
 	session('a1', '/w/alpha', 'main'),
@@ -191,9 +192,13 @@ describe('state', () => {
 					}
 				}
 			}
-			for (const dialog of ['add-project', 'remove-project', 'new-session', 'close-session', 'worktree', 'merge', 'open-url'] as const) {
-				for (const mergeSettled of [false, true]) {
-					for (const line of listHints({focus: 'list', dialog, row: null, mergeSettled}, lang)) expect(width(line)).toBeLessThanOrEqual(28);
+			for (const dialog of ['add-project', 'remove-project', 'new-session', 'close-session', 'worktree', 'open-url'] as const) {
+				for (const worktreeStep of ['branch', 'agent'] as const) {
+					for (const canRemoveWorktree of [false, true]) {
+						for (const line of listHints({focus: 'list', dialog, row: null, worktreeStep, canRemoveWorktree}, lang)) {
+							expect(width(line)).toBeLessThanOrEqual(28);
+						}
+					}
 				}
 			}
 			for (const line of listHints({focus: 'ai', dialog: null, row: null}, lang)) expect(width(line)).toBeLessThanOrEqual(28);
@@ -233,19 +238,18 @@ describe('telling apart AIs on the same branch', () => {
 	});
 });
 
-describe('worktree, merge and open dialogs', () => {
+describe('worktree, close and open dialogs', () => {
 	const options = [
 		{id: 'claude', name: 'Claude Code', installed: true},
 		{id: 'codex', name: 'Codex CLI', installed: false},
 		{id: 'agy', name: 'Antigravity', installed: true},
 	];
-	const plan = {branch: 'feat/x', base: 'main', project: '/w/alpha', path: '/w/alpha.worktrees/feat/x', dirty: 0, ignored: []};
 	const onWorktree = (): AppState => {
-		const wt = {...session('w1', '/w/alpha', 'feat/x'), cwd: '/w/alpha.worktrees/feat/x', worktree: true, base: 'main'};
+		const wt = {...session('w1', '/w/alpha', 'feat/x'), cwd: '/w/alpha.worktrees/feat/x', worktree: true};
 		return A.selectSession(A.setSessions(A.initialState(config), [...SESSIONS, wt]), 'w1');
 	};
 
-	test('openNewSession copies cwd, branch and base from a session row', () => {
+	test('openNewSession copies cwd and branch from a session row', () => {
 		const s = onWorktree();
 		const opened = A.openNewSession(s, options);
 		expect(opened.dialog).toMatchObject({
@@ -253,63 +257,59 @@ describe('worktree, merge and open dialogs', () => {
 			project: '/w/alpha',
 			cwd: '/w/alpha.worktrees/feat/x',
 			branch: 'feat/x',
-			base: 'main',
 		});
 	});
 
-	test('w opens for the project under the cursor, from a group or a session row', () => {
+	test('w opens branch step for the project under cursor and supports picking existing or typing new branches', () => {
 		const onSession = A.openWorktree(A.moveSelection(withSessions(A.initialState(config)), 4), options);
-		expect(onSession.dialog).toMatchObject({kind: 'worktree', project: '/w/beta', base: null, value: '', index: 0});
-		const onGroup = A.openWorktree(A.initialState(config), options);
-		expect(onGroup.dialog).toMatchObject({kind: 'worktree', project: '/w/alpha'});
+		expect(onSession.dialog).toMatchObject({kind: 'worktree', project: '/w/beta', step: 'branch', value: '', branchIndex: 0});
 		const empty = A.initialState({...config, projects: []});
 		expect(A.openWorktree(empty, options)).toBe(empty);
-	});
 
-	test('typing goes to the branch name while the arrows pick the AI', () => {
 		let s = A.openWorktree(A.initialState(config), options);
-		expect(s.dialog && acceptsText(s.dialog)).toBe(true);
-		s = A.editDialog(s, v => v + 'feat/購物車');
-		s = A.moveDialogChoice(s, 2);
-		expect(s.dialog).toMatchObject({value: 'feat/購物車', index: 2});
-		expect(A.moveDialogChoice(s, 5)).toBe(s);
-		if (s.dialog?.kind !== 'worktree') throw new Error('expected the worktree dialog');
+		s = A.setWorktreeBranches(s, '/w/alpha', 'dev', [
+			{branch: 'feat/old', status: 'existing'},
+			{branch: 'main', status: 'worktree'},
+		]);
+		expect(A.setWorktreeBranches(s, '/w/beta', 'dev', [])).toBe(s);
+		if (s.dialog?.kind !== 'worktree') throw new Error('expected worktree dialog');
+		expect(worktreeBranchChoices(s.dialog)).toEqual([
+			{branch: 'feat/old', mode: 'existing'},
+			{branch: 'main', mode: 'worktree'},
+		]);
+		expect(worktreeDialogPath(s.dialog)).toBe('/w/alpha.worktrees/feat/old');
+
+		s = A.editDialog(s, () => 'feat/購物車');
+		if (s.dialog?.kind !== 'worktree') throw new Error('expected worktree dialog');
+		expect(worktreeBranchChoices(s.dialog)).toEqual([{branch: 'feat/購物車', mode: 'create'}]);
 		expect(worktreeDialogPath(s.dialog)).toBe('/w/alpha.worktrees/feat/購物車');
-		expect(worktreeDialogPath({...s.dialog, value: ' '})).toBe('/w/alpha.worktrees/');
-	});
 
-	test('the base branch arrives later and only for the dialog that asked', () => {
-		const s = A.openWorktree(A.initialState(config), options);
-		expect(A.setWorktreeBase(s, '/w/alpha', 'main').dialog).toMatchObject({base: 'main'});
-		expect(A.setWorktreeBase(s, '/w/beta', 'main')).toBe(s);
-		expect(A.setWorktreeBase(A.closeDialog(s), '/w/alpha', 'main').dialog).toBeNull();
-	});
+		s = A.editDialog(s, () => 'main');
+		if (s.dialog?.kind !== 'worktree') throw new Error('expected worktree dialog');
+		expect(worktreeBranchChoices(s.dialog)).toEqual([{branch: 'main', mode: 'worktree'}]);
+		expect(activeWorktreeBranch(s.dialog)).toEqual({branch: 'main', mode: 'worktree'});
 
-	test('merge opens busy, then shows the plan or the reason it cannot go ahead', () => {
-		const group = A.initialState(config);
-		expect(A.openMerge(group)).toBe(group);
-		let s = A.openMerge(onWorktree());
-		expect(s.dialog).toMatchObject({kind: 'merge', busy: true, plan: null, blocked: null, outcome: null});
+		s = A.advanceWorktreeAgent(s, {branch: 'main', mode: 'worktree'});
+		expect(s.dialog).toMatchObject({kind: 'worktree', step: 'agent', selectedBranch: {branch: 'main', mode: 'worktree'}});
 		expect(s.dialog && acceptsText(s.dialog)).toBe(false);
-		expect(A.setMergeCheck(s, 'other', {ok: true, plan})).toBe(s);
-		const refused = A.setMergeCheck(s, 'w1', {ok: false, error: {key: 'aiRunning'}});
-		expect(refused.dialog).toMatchObject({busy: false, blocked: {key: 'aiRunning'}});
-		if (refused.dialog?.kind !== 'merge') throw new Error('expected the merge dialog');
-		expect(mergeSettled(refused.dialog)).toBe(true);
-		s = A.setMergeCheck(s, 'w1', {ok: true, plan});
-		expect(s.dialog).toMatchObject({busy: false, plan: {branch: 'feat/x'}});
-		expect(A.editDialog(s, v => v + 'x')).toBe(s);
+		s = A.moveDialogChoice(s, 2);
+		expect(s.dialog).toMatchObject({index: 2});
 	});
 
-	test('a commit message is asked for only when there are changes to commit', () => {
-		let s = A.setMergeCheck(A.openMerge(onWorktree()), 'w1', {ok: true, plan: {...plan, dirty: 3}});
-		s = A.editDialog(s, v => v + '修正結帳');
-		expect(s.dialog).toMatchObject({value: '修正結帳'});
-		s = A.setMergeOutcome(s, 'w1', {kind: 'conflict', branch: 'feat/x', files: ['a.ts'], aborted: true, committed: true});
-		expect(s.dialog).toMatchObject({busy: false, outcome: {kind: 'conflict'}});
-		if (s.dialog?.kind !== 'merge') throw new Error('expected the merge dialog');
-		expect(mergeSettled(s.dialog)).toBe(true);
-		expect(acceptsText(s.dialog)).toBe(false);
+	test('close dialog offers worktree folder removal only for sole worktree sessions', () => {
+		const single = onWorktree();
+		let dlg = A.openCloseSession(single);
+		expect(dlg.dialog).toMatchObject({kind: 'close-session', canRemoveWorktree: true, index: 0});
+		dlg = A.moveDialogChoice(dlg, 1);
+		expect(dlg.dialog).toMatchObject({index: 1});
+		expect(A.moveDialogChoice(dlg, 1)).toBe(dlg);
+
+		const sharedWt = {
+			...single,
+			sessions: [...single.sessions, {...session('w2', '/w/alpha', 'feat/x', 'agy'), cwd: '/w/alpha.worktrees/feat/x', worktree: true}],
+		};
+		const sharedDlg = A.openCloseSession(sharedWt);
+		expect(sharedDlg.dialog).toMatchObject({kind: 'close-session', canRemoveWorktree: false, index: 0});
 	});
 
 	test('open-url lists the ports to choose from', () => {

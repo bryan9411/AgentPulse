@@ -17,7 +17,6 @@ export type SessionMeta = {
 	worktree: boolean;
 	created: number;
 	agentSession: string;
-	base: string;
 };
 
 export type SessionRecord = SessionMeta & {
@@ -39,7 +38,6 @@ const FIELDS = [
 	'#{@ap-created}',
 	'#{pane_pid}',
 	'#{@ap-agent-session}',
-	'#{@ap-base}',
 ] as const;
 const SEP = '\t';
 
@@ -52,13 +50,12 @@ export function metaOptions(meta: SessionMeta): Array<[string, string]> {
 		['@ap-worktree', meta.worktree ? '1' : '0'],
 		['@ap-created', String(meta.created)],
 		['@ap-agent-session', meta.agentSession],
-		['@ap-base', meta.base],
 	];
 }
 
 // 過濾掉手動開在同一座 socket 上、或 metadata 尚未寫完而沒有 @ap-agent 的 session
 export function parseSessionLine(line: string): SessionRecord | null {
-	const [id, dead, status, agent, project, cwd, branch, worktree, created, pid, agentSession, base] = line.split(SEP);
+	const [id, dead, status, agent, project, cwd, branch, worktree, created, pid, agentSession] = line.split(SEP);
 	if (!id?.startsWith(SESSION_PREFIX) || !agent || !project) return null;
 	const isDead = dead === '1';
 	const code = Number.parseInt(status ?? '', 10);
@@ -74,7 +71,6 @@ export function parseSessionLine(line: string): SessionRecord | null {
 		exitStatus: isDead && Number.isFinite(code) ? code : null,
 		pid: Number(pid) || 0,
 		agentSession: agentSession ?? '',
-		base: base ?? '',
 	};
 }
 
@@ -118,7 +114,6 @@ export type CreateOptions = {
 	width: number;
 	height: number;
 	worktree?: boolean;
-	base?: string;
 	// 測試用：以一般指令取代真實 AI
 	command?: string[];
 };
@@ -145,7 +140,6 @@ export async function createSession(tmux: Tmux, opts: CreateOptions): Promise<Cr
 		worktree: opts.worktree ?? false,
 		created: Math.floor(Date.now() / 1000),
 		agentSession,
-		base: opts.base ?? '',
 	};
 	// 在同一次 tmux 呼叫中連同 metadata 一起寫入，避免輪詢看到沒有中繼資料的半成品；
 	// 注意 -f 只有在這行順便啟動新 server 時才會生效

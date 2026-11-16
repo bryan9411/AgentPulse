@@ -31,7 +31,7 @@ describe('keyLabel', () => {
 describe('helpLines', () => {
 	test('every list key from SPEC 4.2 is listed', () => {
 		const text = helpLines(base).join('\n');
-		for (const key of ['enter', 'z', 'n', 'w', 'm', 'x', 'd', 'o', '/', 'f', 'a', 't', '?', 'q']) {
+		for (const key of ['enter', 'z', 'n', 'w', 'x', 'd', 'o', '/', 'f', 'a', 't', '?', 'q']) {
 			expect(text).toMatch(new RegExp(`^  ${key.replace(/[?/]/, c => `\\${c}`)} `, 'm'));
 		}
 	});

@@ -1,13 +1,13 @@
 import {basename} from 'node:path';
 import {DEFAULT_CONFIG, type Config} from '../config/config.ts';
 import {ALERT_STATES, type SessionStatus} from '../services/status/machine.ts';
-import {acceptsText, isViewing, projectKey, selectedIndex, selectedProjectPath, selectedRow, sessionKey, visibleRows} from './selectors.ts';
+import {acceptsText, isViewing, projectKey, selectedIndex, selectedProjectPath, selectedRow, sessionKey, visibleRows, worktreeBranchChoices} from './selectors.ts';
 import type {AccountMark} from '../services/accounts.ts';
 import type {Conflict} from '../services/conflictRadar.ts';
 import type {SessionDetails} from '../services/details.ts';
-import type {MergeCheck, MergeOutcome} from '../services/worktree.ts';
+import type {WorktreeBranchOption} from '../services/worktree.ts';
 import type {Lang, Message} from '../i18n/strings.ts';
-import type {AgentOption, AppState, Project, SessionSummary} from './types.ts';
+import type {AgentOption, AppState, Project, SessionSummary, WorktreeChoice} from './types.ts';
 
 export function initialState(config: Config = DEFAULT_CONFIG): AppState {
 	return withSelection({
@@ -127,6 +127,7 @@ export function openAddProject(state: AppState): AppState {
 export function editDialog(state: AppState, edit: (value: string) => string): AppState {
 	const d = state.dialog;
 	if (!d || d.busy || !acceptsText(d)) return state;
+	if (d.kind === 'worktree') return {...state, dialog: {...d, value: edit(d.value), branchIndex: 0, error: null}};
 	return {...state, dialog: {...d, value: edit(d.value), error: null}};
 }
 
@@ -136,14 +137,25 @@ export function openNewSession(state: AppState, options: AgentOption[]): AppStat
 	const project = row.kind === 'project' ? row.project.path : row.session.project;
 	const cwd = row.kind === 'session' ? row.session.cwd : row.project.path;
 	const branch = row.kind === 'session' ? row.session.branch : '';
-	const base = row.kind === 'session' && row.session.worktree && row.session.base ? row.session.base : undefined;
 	const index = Math.max(0, options.findIndex(o => o.installed));
-	return {...state, dialog: {kind: 'new-session', project, cwd, branch, base, options, index, error: null, busy: false}};
+	return {...state, dialog: {kind: 'new-session', project, cwd, branch, options, index, error: null, busy: false}};
 }
 
 export function moveDialogChoice(state: AppState, delta: number): AppState {
 	const d = state.dialog;
-	if (!d || d.busy || (d.kind !== 'new-session' && d.kind !== 'worktree' && d.kind !== 'open-url')) return state;
+	if (!d || d.busy) return state;
+	if (d.kind === 'worktree' && d.step === 'branch') {
+		const count = worktreeBranchChoices(d).length;
+		if (count === 0) return state;
+		const branchIndex = Math.min(count - 1, Math.max(0, d.branchIndex + delta));
+		return branchIndex === d.branchIndex ? state : {...state, dialog: {...d, branchIndex, error: null}};
+	}
+	if (d.kind === 'close-session') {
+		if (!d.canRemoveWorktree) return state;
+		const index = Math.min(1, Math.max(0, d.index + delta));
+		return index === d.index ? state : {...state, dialog: {...d, index, error: null}};
+	}
+	if (d.kind !== 'new-session' && d.kind !== 'worktree' && d.kind !== 'open-url') return state;
 	const count = d.kind === 'open-url' ? d.ports.length : d.options.length;
 	if (count === 0) return state;
 	const index = Math.min(count - 1, Math.max(0, d.index + delta));
@@ -154,37 +166,46 @@ export function openWorktree(state: AppState, options: AgentOption[]): AppState 
 	const project = selectedProjectPath(state);
 	if (!project) return state;
 	const index = Math.max(0, options.findIndex(o => o.installed));
-	return {...state, dialog: {kind: 'worktree', project, base: null, value: '', options, index, error: null, busy: false}};
-}
-
-export function setWorktreeBase(state: AppState, project: string, base: string): AppState {
-	const d = state.dialog;
-	if (d?.kind !== 'worktree' || d.project !== project || d.base === base) return state;
-	return {...state, dialog: {...d, base}};
-}
-
-export function openMerge(state: AppState): AppState {
-	const row = selectedRow(state);
-	if (row?.kind !== 'session') return state;
 	return {
 		...state,
-		dialog: {kind: 'merge', session: row.session, plan: null, blocked: null, value: '', outcome: null, error: null, busy: true},
+		dialog: {
+			kind: 'worktree',
+			project,
+			step: 'branch',
+			base: null,
+			branches: [],
+			branchesLoaded: false,
+			value: '',
+			branchIndex: 0,
+			selectedBranch: null,
+			options,
+			index,
+			error: null,
+			busy: false,
+		},
 	};
 }
 
-export function setMergeCheck(state: AppState, id: string, check: MergeCheck): AppState {
+export function setWorktreeBranches(
+	state: AppState,
+	project: string,
+	base: string | null,
+	branches: WorktreeBranchOption[],
+): AppState {
 	const d = state.dialog;
-	if (d?.kind !== 'merge' || d.session.id !== id) return state;
+	if (d?.kind !== 'worktree' || d.project !== project) return state;
+	const next = {...d, base, branches, branchesLoaded: true};
+	const count = worktreeBranchChoices(next).length;
 	return {
 		...state,
-		dialog: check.ok ? {...d, plan: check.plan, blocked: null, busy: false} : {...d, plan: null, blocked: check.error, error: null, busy: false},
+		dialog: {...next, branchIndex: count === 0 ? 0 : Math.min(d.branchIndex, count - 1)},
 	};
 }
 
-export function setMergeOutcome(state: AppState, id: string, outcome: MergeOutcome): AppState {
+export function advanceWorktreeAgent(state: AppState, choice: WorktreeChoice): AppState {
 	const d = state.dialog;
-	if (d?.kind !== 'merge' || d.session.id !== id) return state;
-	return {...state, dialog: {...d, outcome, error: null, busy: false}};
+	if (d?.kind !== 'worktree') return state;
+	return {...state, dialog: {...d, step: 'agent', selectedBranch: choice, error: null, busy: false}};
 }
 
 export function openUrlChoice(state: AppState, ports: number[]): AppState {
@@ -194,7 +215,11 @@ export function openUrlChoice(state: AppState, ports: number[]): AppState {
 export function openCloseSession(state: AppState): AppState {
 	const row = selectedRow(state);
 	if (row?.kind !== 'session') return state;
-	return {...state, dialog: {kind: 'close-session', session: row.session, error: null, busy: false}};
+	const canRemoveWorktree =
+		row.session.worktree &&
+		row.session.cwd !== row.session.project &&
+		!state.sessions.some(s => s.id !== row.session.id && s.cwd === row.session.cwd);
+	return {...state, dialog: {kind: 'close-session', session: row.session, canRemoveWorktree, index: 0, error: null, busy: false}};
 }
 
 export function openRemoveProject(state: AppState): AppState {

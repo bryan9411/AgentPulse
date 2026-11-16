@@ -79,7 +79,6 @@ export function useKeys(store: Store<AppState>, controller: Controller) {
 			if (row?.kind === 'project') store.set(A.openRemoveProject);
 			else if (row?.kind === 'session') store.set(A.openCloseSession);
 		} else if (input === 'w') controller.openWorktree();
-		else if (input === 'm') controller.openMerge();
 		else if (input === 'd') void controller.showDiff();
 		else if (input === '?') void controller.showHelp();
 		else if (input === 'o') void controller.openWeb();

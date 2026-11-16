@@ -4,11 +4,11 @@ import type {AccountMark} from '../services/accounts.ts';
 import type {Conflict} from '../services/conflictRadar.ts';
 import type {SessionDetails} from '../services/details.ts';
 import type {SessionStatus} from '../services/status/machine.ts';
-import type {MergeOutcome, MergePlan} from '../services/worktree.ts';
+import type {WorktreeBranchOption} from '../services/worktree.ts';
 
 // 重新匯出供 ui/ 使用，讓 ui/ 不直接匯入 services/
 export type {Conflict} from '../services/conflictRadar.ts';
-export type {MergeOutcome, MergePlan} from '../services/worktree.ts';
+export type {WorktreeBranchOption} from '../services/worktree.ts';
 
 export type Project = {path: string; name: string};
 
@@ -24,9 +24,8 @@ export type SessionSummary = {
 	created: number;
 	// 我們指定給 AI 的對話 ID（未指定時為空字串）
 	agentSession: string;
-	// 是否透過 w 建立 worktree（@ap-worktree）及合併回去的目標分支（@ap-base）
+	// 是否透過 w 開啟的獨立 worktree 工作區（@ap-worktree）
 	worktree: boolean;
-	base: string;
 };
 
 export type Row =
@@ -44,32 +43,32 @@ export type NewSessionDialog = DialogBase & {
 	project: string;
 	cwd?: string;
 	branch?: string;
-	base?: string;
 	options: AgentOption[];
 	index: number;
 };
-export type CloseSessionDialog = DialogBase & {kind: 'close-session'; session: SessionSummary};
-// base 在取得主資料夾目前分支前為 null
+export type CloseSessionDialog = DialogBase & {
+	kind: 'close-session';
+	session: SessionSummary;
+	canRemoveWorktree: boolean;
+	index: number;
+};
+export type WorktreeChoice = {branch: string; mode: 'create' | 'existing' | 'worktree'};
 export type WorktreeDialog = DialogBase & {
 	kind: 'worktree';
 	project: string;
+	step: 'branch' | 'agent';
 	base: string | null;
+	branches: WorktreeBranchOption[];
+	branchesLoaded: boolean;
 	value: string;
+	branchIndex: number;
+	selectedBranch: WorktreeChoice | null;
 	options: AgentOption[];
 	index: number;
 };
-// 合併流程共用同一個對話框：檢查中（無 plan）→ 被拒（blocked）→ 等候確認（plan）→ 執行結果（outcome）
-export type MergeDialog = DialogBase & {
-	kind: 'merge';
-	session: SessionSummary;
-	plan: MergePlan | null;
-	blocked: Message | null;
-	value: string;
-	outcome: MergeOutcome | null;
-};
 export type OpenUrlDialog = DialogBase & {kind: 'open-url'; ports: number[]; index: number};
 
-export type Dialog = AddProjectDialog | RemoveProjectDialog | NewSessionDialog | CloseSessionDialog | WorktreeDialog | MergeDialog | OpenUrlDialog;
+export type Dialog = AddProjectDialog | RemoveProjectDialog | NewSessionDialog | CloseSessionDialog | WorktreeDialog | OpenUrlDialog;
 
 export type WindowSize = {columns: number; rows: number};
 
