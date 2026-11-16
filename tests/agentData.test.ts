@@ -182,10 +182,14 @@ describe('claude data', () => {
 describe('agy data', () => {
 	const gem = `${HOME}/.gemini`;
 
-	test('account: env var or the oauth file existing', () => {
+	test('account: env var, oauth file, or antigravity onboarding cache', () => {
 		expect(agy.accountStatus(fakeFs({}))).toBe('not-set');
 		expect(agy.accountStatus(fakeFs({}, {GEMINI_API_KEY: 'k'}))).toBe('signed-in');
 		expect(agy.accountStatus(fakeFs({[`${gem}/oauth_creds.json`]: 'never parsed'}))).toBe('signed-in');
+		const onboarding = `${gem}/antigravity-cli/cache/onboarding.json`;
+		expect(agy.accountStatus(fakeFs({[onboarding]: '{"onboardingComplete":false}'}))).toBe('not-set');
+		expect(agy.accountStatus(fakeFs({[onboarding]: '{"onboardingComplete":true}'}))).toBe('signed-in');
+		expect(agy.accountStatus(fakeFs({[onboarding]: '{"consumerOnboardingComplete":true}'}))).toBe('signed-in');
 	});
 
 	test('model setting splits off the level in brackets', () => {

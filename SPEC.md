@@ -287,7 +287,7 @@
 |---|---|
 | Claude Code | 環境變數 `ANTHROPIC_API_KEY`；或 `~/.claude.json` 內有 `oauthAccount` |
 | Codex | 環境變數 `OPENAI_API_KEY`；或 `~/.codex/auth.json` 存在 |
-| agy | 環境變數 `GEMINI_API_KEY`；或 `~/.gemini/oauth_creds.json` 存在（開發機登入 agy 後確認該檔存在） |
+| agy | 環境變數 `GEMINI_API_KEY`；或 `~/.gemini/oauth_creds.json` 存在；或 `~/.gemini/antigravity-cli/cache/onboarding.json` 的登入完成旗標為 `true` |
 
 - 只檢查「是否存在」，**不讀取、不記錄、不顯示**任何金鑰或 token 的值。`~/.claude.json` 需解析成物件才能判斷 `oauthAccount` 這個鍵是否存在，解析結果只用來判斷，不保留、不記錄。
 - 頂列右側依 Claude Code、Codex、agy 的順序顯示，例如 `claude ●  codex ○  agy ●`。符號用主要文字色，不另上色。

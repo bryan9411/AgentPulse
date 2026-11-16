@@ -1,5 +1,5 @@
 import {join} from 'node:path';
-import {countSkills, envSet, keysOf, readJson, stringField} from './files.ts';
+import {countSkills, envSet, isRecord, keysOf, readJson, stringField} from './files.ts';
 import {commandHasProgram} from './match.ts';
 import {findInputBox, lastNonEmpty, screenLines} from './screen.ts';
 import type {AccountStatus, AgentAdapter, HostFs, ScreenState, SessionInfo} from './types.ts';
@@ -34,7 +34,18 @@ const geminiDir = (fs: HostFs) => join(fs.home, '.gemini');
 
 function accountStatus(fs: HostFs): AccountStatus {
 	if (envSet(fs, 'GEMINI_API_KEY')) return 'signed-in';
-	return fs.exists(join(geminiDir(fs), 'oauth_creds.json')) ? 'signed-in' : 'not-set';
+	if (fs.exists(join(geminiDir(fs), 'oauth_creds.json'))) return 'signed-in';
+	// Antigravity CLI 登入後憑證由系統金鑰圈管理，改於 onboarding.json 標記完成狀態
+	const onboarding = readJson(fs, join(geminiDir(fs), 'antigravity-cli', 'cache', 'onboarding.json'));
+	if (
+		isRecord(onboarding) &&
+		(onboarding.onboardingComplete === true ||
+			onboarding.consumerOnboardingComplete === true ||
+			onboarding.enterpriseOnboardingComplete === true)
+	) {
+		return 'signed-in';
+	}
+	return 'not-set';
 }
 
 function mcpServers(fs: HostFs): string[] | null {

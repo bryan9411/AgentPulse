@@ -311,6 +311,6 @@ export function topBarFormat(input: TopBarInput): string {
 	const left = ` #[fg=${COLORS.accent},bold]AgentPulse#[nobold,fg=${COLORS.dim}]  ${parts.join(sep)}`;
 	const marks = (input.accounts ?? [])
 		.filter(a => a.signedIn !== null)
-		.map(a => `#[fg=${a.signedIn ? agentColor(a.id) : COLORS.dim}]${a.id} #[fg=${a.signedIn ? COLORS.running : COLORS.subtle}]${a.signedIn ? glyphs.running : glyphs.idle}`);
+		.map(a => `#[fg=${a.signedIn ? agentColor(a.id) : COLORS.dim}]${a.id} #[fg=${a.signedIn ? COLORS.text : COLORS.subtle}]${a.signedIn ? glyphs.running : glyphs.idle}`);
 	return marks.length === 0 ? left : `${left}#[align=right]${marks.join('  ')} `;
 }
